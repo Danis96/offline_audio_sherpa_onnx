@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:record/record.dart';
 
@@ -33,12 +34,12 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
   final List<_LogEntry> _logs = <_LogEntry>[];
 
   AppLanguage _sourceLanguage = supportedSourceLanguages.first;
-  AppLanguage _targetLanguage = supportedTargetLanguages.first;
 
   String _transcript = '';
-  String _translation = '';
   String? _statusMessage =
       'Preparing streaming Zipformer models from bundled assets...';
+  int _frameCount = 0;
+  int _emptyDecodeWindows = 0;
 
   bool _isRecording = false;
   bool _isWarmingUp = false;
@@ -57,8 +58,7 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
     _setStatus(
       'Preparing streaming Zipformer assets...',
       category: _LogCategory.system,
-      logMessage:
-          'Warmup requested for ${_sourceLanguage.label} -> ${_targetLanguage.label}.',
+      logMessage: 'Warmup requested for ${_sourceLanguage.label}.',
     );
 
     setState(() {
@@ -66,10 +66,7 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
     });
 
     try {
-      await _pipeline.warmUp(
-        sourceLanguage: _sourceLanguage,
-        targetLanguage: _targetLanguage,
-      );
+      await _pipeline.warmUp(sourceLanguage: _sourceLanguage);
     } catch (error) {
       if (!mounted) {
         return;
@@ -96,7 +93,8 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
     _setStatus(
       'Ready. Streaming Zipformer is online for live English transcription.',
       category: _LogCategory.success,
-      logMessage: 'Warmup finished. Streaming ASR pipeline is online.',
+      logMessage:
+          'Warmup finished. Streaming ASR pipeline is online for English.',
     );
   }
 
@@ -141,10 +139,15 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
     );
 
     _pipeline.resetSession();
+    _frameCount = 0;
+    _emptyDecodeWindows = 0;
     _appendLog(
       category: _LogCategory.capture,
       message: 'Microphone stream opened at 16 kHz mono PCM.',
     );
+    setState(() {
+      _transcript = '';
+    });
 
     _audioStreamSub = stream.listen(
       (data) => _processAudioFrame(_convertBytesToDouble(data)),
@@ -177,14 +180,30 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
 
   void _processAudioFrame(List<double> frame) {
     _updateWaveform(frame);
-    final result = _pipeline.ingestAudioFrame(
-      samples: frame,
-      sourceLanguage: _sourceLanguage,
-      targetLanguage: _targetLanguage,
-    );
+    _frameCount += 1;
+    final result = _pipeline.ingestAudioFrame(samples: frame);
 
     if (result != null) {
+      _emptyDecodeWindows = 0;
       _applyStreamingResult(result);
+      return;
+    }
+
+    if (_frameCount % 25 == 0) {
+      _appendLog(
+        category: _LogCategory.capture,
+        message:
+            'Audio checkpoint. frames=$_frameCount, rms=${_calculateRms(frame).toStringAsFixed(3)}.',
+      );
+    }
+
+    if (_frameCount % 60 == 0) {
+      _emptyDecodeWindows += 1;
+      _appendLog(
+        category: _LogCategory.decode,
+        message:
+            'No transcript update yet. frames=$_frameCount, empty_windows=$_emptyDecodeWindows.',
+      );
     }
   }
 
@@ -198,10 +217,7 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
     );
 
     if (flushPendingAudio) {
-      final finalResult = _pipeline.finishSession(
-        sourceLanguage: _sourceLanguage,
-        targetLanguage: _targetLanguage,
-      );
+      final finalResult = _pipeline.finishSession();
       if (finalResult != null) {
         _applyStreamingResult(finalResult, isFinal: true);
       }
@@ -252,36 +268,16 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
   }
 
   List<double> _convertBytesToDouble(Uint8List data) {
-    final pcm = data.buffer.asInt16List();
-    return pcm.map((sample) => sample / 32768.0).toList();
-  }
+    final byteData = ByteData.sublistView(data);
+    final sampleCount = data.lengthInBytes ~/ 2;
+    final samples = List<double>.filled(sampleCount, 0);
 
-  Future<void> _swapLanguages() async {
-    final matchingSource = supportedSourceLanguages.where(
-      (language) => language.code == _targetLanguage.code,
-    );
-    final nextSource = matchingSource.isEmpty
-        ? supportedSourceLanguages.first
-        : matchingSource.first;
+    for (var i = 0; i < sampleCount; i++) {
+      final sample = byteData.getInt16(i * 2, Endian.little);
+      samples[i] = sample / 32768.0;
+    }
 
-    final matchingTarget = supportedTargetLanguages.where(
-      (language) => language.code == _sourceLanguage.code,
-    );
-    final nextTarget = matchingTarget.isEmpty
-        ? supportedTargetLanguages.first
-        : matchingTarget.first;
-
-    setState(() {
-      _sourceLanguage = nextSource;
-      _targetLanguage = nextTarget;
-    });
-    _setStatus(
-      'Languages updated. Rewarming the local pipeline...',
-      category: _LogCategory.system,
-      logMessage:
-          'Language routing changed to ${nextSource.label} -> ${nextTarget.label}.',
-    );
-    await _warmUpPipeline();
+    return samples;
   }
 
   void _applyStreamingResult(LiveResult result, {bool isFinal = false}) {
@@ -291,7 +287,6 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
 
     setState(() {
       _transcript = result.transcript;
-      _translation = result.translation;
     });
 
     final preview = result.transcript.isEmpty
@@ -332,6 +327,7 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
       category: category,
       message: message,
     );
+    debugPrint('[APP_LOG][${category.label}] $message');
 
     if (mounted) {
       setState(() {
@@ -413,40 +409,15 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
               final topSection = _buildCommandDeck(theme, isWide: isWide);
 
               final outputSection = isWide
-                  ? Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        Expanded(
-                          child: _TextPanel(
-                            title: 'Transcript',
-                            subtitle: _sourceLanguage.label,
-                            body: _transcript,
-                          ),
-                        ),
-                        const SizedBox(width: 18),
-                        Expanded(
-                          child: _TextPanel(
-                            title: 'Translation',
-                            subtitle: _targetLanguage.label,
-                            body: _translation,
-                          ),
-                        ),
-                      ],
+                  ? _TextPanel(
+                      title: 'Transcript',
+                      subtitle: _sourceLanguage.label,
+                      body: _transcript,
                     )
-                  : Column(
-                      children: <Widget>[
-                        _TextPanel(
-                          title: 'Transcript',
-                          subtitle: _sourceLanguage.label,
-                          body: _transcript,
-                        ),
-                        const SizedBox(height: 18),
-                        _TextPanel(
-                          title: 'Translation',
-                          subtitle: _targetLanguage.label,
-                          body: _translation,
-                        ),
-                      ],
+                  : _TextPanel(
+                      title: 'Transcript',
+                      subtitle: _sourceLanguage.label,
+                      body: _transcript,
                     );
 
               return SingleChildScrollView(
@@ -502,7 +473,6 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
               const SizedBox(height: 18),
               _LanguageSelectorCard(
                 sourceLanguage: _sourceLanguage,
-                targetLanguage: _targetLanguage,
                 isBusy: _isRecording || _isWarmingUp,
                 onSourceChanged: (language) async {
                   setState(() {
@@ -514,17 +484,6 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
                   );
                   await _warmUpPipeline();
                 },
-                onTargetChanged: (language) async {
-                  setState(() {
-                    _targetLanguage = language;
-                  });
-                  _appendLog(
-                    category: _LogCategory.system,
-                    message: 'Target language changed to ${language.label}.',
-                  );
-                  await _warmUpPipeline();
-                },
-                onSwap: _swapLanguages,
               ),
               const SizedBox(height: 18),
               _MonitorPanel(
@@ -710,86 +669,22 @@ class _MonitorPanel extends StatelessWidget {
 class _LanguageSelectorCard extends StatelessWidget {
   const _LanguageSelectorCard({
     required this.sourceLanguage,
-    required this.targetLanguage,
     required this.isBusy,
     required this.onSourceChanged,
-    required this.onTargetChanged,
-    required this.onSwap,
   });
 
   final AppLanguage sourceLanguage;
-  final AppLanguage targetLanguage;
   final bool isBusy;
   final ValueChanged<AppLanguage> onSourceChanged;
-  final ValueChanged<AppLanguage> onTargetChanged;
-  final Future<void> Function() onSwap;
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (BuildContext context, BoxConstraints constraints) {
-        final stacked = constraints.maxWidth < 680;
-
-        if (stacked) {
-          return Column(
-            children: <Widget>[
-              _LanguageDropdown(
-                label: 'Speak in',
-                value: sourceLanguage,
-                enabled: !isBusy,
-                items: supportedSourceLanguages,
-                onChanged: onSourceChanged,
-              ),
-              const SizedBox(height: 12),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: IconButton.filledTonal(
-                  onPressed: isBusy ? null : onSwap,
-                  icon: const Icon(Icons.swap_vert_rounded),
-                ),
-              ),
-              const SizedBox(height: 12),
-              _LanguageDropdown(
-                label: 'Translate to',
-                value: targetLanguage,
-                enabled: !isBusy,
-                items: supportedTargetLanguages,
-                onChanged: onTargetChanged,
-              ),
-            ],
-          );
-        }
-
-        return Row(
-          children: <Widget>[
-            Expanded(
-              child: _LanguageDropdown(
-                label: 'Speak in',
-                value: sourceLanguage,
-                enabled: !isBusy,
-                items: supportedSourceLanguages,
-                onChanged: onSourceChanged,
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: IconButton.filledTonal(
-                onPressed: isBusy ? null : onSwap,
-                icon: const Icon(Icons.swap_horiz_rounded),
-              ),
-            ),
-            Expanded(
-              child: _LanguageDropdown(
-                label: 'Translate to',
-                value: targetLanguage,
-                enabled: !isBusy,
-                items: supportedTargetLanguages,
-                onChanged: onTargetChanged,
-              ),
-            ),
-          ],
-        );
-      },
+    return _LanguageDropdown(
+      label: 'Transcribe in',
+      value: sourceLanguage,
+      enabled: !isBusy,
+      items: supportedSourceLanguages,
+      onChanged: onSourceChanged,
     );
   }
 }
@@ -870,7 +765,7 @@ class _TerminalLogPanel extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'Live event stream from capture, segmentation, and decode.',
+              'Live event stream from capture and streaming decode.',
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: const Color(0xFF94A3B8),
               ),

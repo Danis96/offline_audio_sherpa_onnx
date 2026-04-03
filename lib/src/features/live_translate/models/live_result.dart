@@ -1,6 +1,5 @@
 class LiveResult {
-  const LiveResult({required this.transcript, required this.translation});
+  const LiveResult({required this.transcript});
 
   final String transcript;
-  final String translation;
 }
