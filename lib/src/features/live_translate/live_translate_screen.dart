@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -24,7 +23,6 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
   static const int _maxLogEntries = 80;
 
   final AudioRecorder _audioRecorder = AudioRecorder();
-  final LiveSpeechPipeline _pipeline = SherpaStreamingZipformerPipeline();
   final ScrollController _resultsScrollController = ScrollController();
   final ScrollController _logScrollController = ScrollController();
 
@@ -33,7 +31,9 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
   List<double> _waveformLevels = List<double>.filled(_waveformBars, 0.04);
   final List<_LogEntry> _logs = <_LogEntry>[];
 
-  AppLanguage _sourceLanguage = supportedSourceLanguages.first;
+  late LiveSpeechPipeline _pipeline;
+  _AsrEngine _engine = _AsrEngine.zipformer;
+  AppLanguage _sourceLanguage = zipformerSourceLanguages.first;
 
   String _transcript = '';
   String? _statusMessage =
@@ -47,6 +47,7 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
   @override
   void initState() {
     super.initState();
+    _pipeline = _createPipeline(_engine);
     _appendLog(
       category: _LogCategory.system,
       message: 'Boot sequence started. Validating bundled speech models.',
@@ -56,9 +57,10 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
 
   Future<void> _warmUpPipeline() async {
     _setStatus(
-      'Preparing streaming Zipformer assets...',
+      'Preparing ${_engine.displayName} assets...',
       category: _LogCategory.system,
-      logMessage: 'Warmup requested for ${_sourceLanguage.label}.',
+      logMessage:
+          'Warmup requested for ${_sourceLanguage.label} on ${_engine.displayName}.',
     );
 
     setState(() {
@@ -91,11 +93,62 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
       _isWarmingUp = false;
     });
     _setStatus(
-      'Ready. Streaming Zipformer is online for live English transcription.',
+      _engine == _AsrEngine.zipformer
+          ? 'Ready. Zipformer is online for live English transcription.'
+          : _engine == _AsrEngine.senseFlow
+          ? 'Ready. SenseFlow is online for ${_sourceLanguage.label} phrase transcription.'
+          : _engine == _AsrEngine.canary
+          ? 'Ready. Canary is online for ${_sourceLanguage.label} phrase transcription.'
+          : 'Ready. Whisper Small is online for ${_sourceLanguage.label} phrase transcription.',
       category: _LogCategory.success,
       logMessage:
-          'Warmup finished. Streaming ASR pipeline is online for English.',
+          'Warmup finished. ${_engine.displayName} pipeline is online for ${_sourceLanguage.label}.',
     );
+  }
+
+  List<AppLanguage> get _currentSourceLanguages => switch (_engine) {
+    _AsrEngine.zipformer => zipformerSourceLanguages,
+    _AsrEngine.senseFlow => senseFlowSourceLanguages,
+    _AsrEngine.canary => canarySourceLanguages,
+    _AsrEngine.whisperSmall => whisperSourceLanguages,
+  };
+
+  LiveSpeechPipeline _createPipeline(_AsrEngine engine) => switch (engine) {
+    _AsrEngine.zipformer => SherpaStreamingZipformerPipeline(),
+    _AsrEngine.senseFlow => SherpaSenseFlowPipeline(),
+    _AsrEngine.canary => SherpaCanaryPipeline(),
+    _AsrEngine.whisperSmall => SherpaWhisperPipeline(),
+  };
+
+  Future<void> _changeEngine(_AsrEngine engine) async {
+    if (_engine == engine) {
+      return;
+    }
+
+    if (_isRecording) {
+      await _stopListening(flushPendingAudio: true);
+    }
+
+    final previousEngine = _engine;
+    _pipeline.dispose();
+
+    setState(() {
+      _engine = engine;
+      _pipeline = _createPipeline(engine);
+      final supported = _currentSourceLanguages;
+      if (!supported.any((language) => language.code == _sourceLanguage.code)) {
+        _sourceLanguage = supported.first;
+      }
+      _transcript = '';
+      _waveformLevels = List<double>.filled(_waveformBars, 0.04);
+    });
+
+    _appendLog(
+      category: _LogCategory.system,
+      message:
+          'Engine changed from ${previousEngine.displayName} to ${engine.displayName}.',
+    );
+    await _warmUpPipeline();
   }
 
   Future<void> _toggleRecording() async {
@@ -171,10 +224,16 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
       _isRecording = true;
     });
     _setStatus(
-      'Listening in ${_sourceLanguage.label}. Transcript will update while you speak.',
+      _engine == _AsrEngine.zipformer
+          ? 'Listening in ${_sourceLanguage.label}. Transcript will update while you speak.'
+          : _engine == _AsrEngine.senseFlow
+          ? 'Listening in ${_sourceLanguage.label}. SenseFlow will publish transcript chunks after short pauses.'
+          : _engine == _AsrEngine.canary
+          ? 'Listening in ${_sourceLanguage.label}. Canary will publish transcript chunks after short pauses.'
+          : 'Listening in ${_sourceLanguage.label}. Whisper Small will publish transcript chunks after short pauses.',
       category: _LogCategory.capture,
       logMessage:
-          'Capture armed for ${_sourceLanguage.label}. Waiting for streaming decoder updates.',
+          'Capture armed for ${_sourceLanguage.label} on ${_engine.displayName}.',
     );
   }
 
@@ -193,7 +252,7 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
       _appendLog(
         category: _LogCategory.capture,
         message:
-            'Audio checkpoint. frames=$_frameCount, rms=${_calculateRms(frame).toStringAsFixed(3)}.',
+            'Audio checkpoint. engine=${_engine.displayName}, frames=$_frameCount, rms=${_calculateRms(frame).toStringAsFixed(3)}.',
       );
     }
 
@@ -202,7 +261,7 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
       _appendLog(
         category: _LogCategory.decode,
         message:
-            'No transcript update yet. frames=$_frameCount, empty_windows=$_emptyDecodeWindows.',
+            'No transcript update yet. engine=${_engine.displayName}, frames=$_frameCount, empty_windows=$_emptyDecodeWindows.',
       );
     }
   }
@@ -472,15 +531,19 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
               ),
               const SizedBox(height: 18),
               _LanguageSelectorCard(
+                engine: _engine,
                 sourceLanguage: _sourceLanguage,
+                items: _currentSourceLanguages,
                 isBusy: _isRecording || _isWarmingUp,
+                onEngineChanged: _changeEngine,
                 onSourceChanged: (language) async {
                   setState(() {
                     _sourceLanguage = language;
                   });
                   _appendLog(
                     category: _LogCategory.system,
-                    message: 'Source language changed to ${language.label}.',
+                    message:
+                        'Source language changed to ${language.label} on ${_engine.displayName}.',
                   );
                   await _warmUpPipeline();
                 },
@@ -504,6 +567,17 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
       ],
     );
   }
+}
+
+enum _AsrEngine { zipformer, senseFlow, canary, whisperSmall }
+
+extension on _AsrEngine {
+  String get displayName => switch (this) {
+    _AsrEngine.zipformer => 'Zipformer',
+    _AsrEngine.senseFlow => 'SenseFlow',
+    _AsrEngine.canary => 'Canary',
+    _AsrEngine.whisperSmall => 'Whisper Small',
+  };
 }
 
 enum _LogCategory { system, capture, segment, decode, success, error }
@@ -668,23 +742,54 @@ class _MonitorPanel extends StatelessWidget {
 
 class _LanguageSelectorCard extends StatelessWidget {
   const _LanguageSelectorCard({
+    required this.engine,
     required this.sourceLanguage,
+    required this.items,
     required this.isBusy,
+    required this.onEngineChanged,
     required this.onSourceChanged,
   });
 
+  final _AsrEngine engine;
   final AppLanguage sourceLanguage;
+  final List<AppLanguage> items;
   final bool isBusy;
+  final ValueChanged<_AsrEngine> onEngineChanged;
   final ValueChanged<AppLanguage> onSourceChanged;
 
   @override
   Widget build(BuildContext context) {
-    return _LanguageDropdown(
-      label: 'Transcribe in',
-      value: sourceLanguage,
-      enabled: !isBusy,
-      items: supportedSourceLanguages,
-      onChanged: onSourceChanged,
+    return Column(
+      children: <Widget>[
+        DropdownButtonFormField<_AsrEngine>(
+          initialValue: engine,
+          dropdownColor: const Color(0xFF0F1A23),
+          decoration: const InputDecoration(labelText: 'Speech engine'),
+          items: _AsrEngine.values
+              .map(
+                (value) => DropdownMenuItem<_AsrEngine>(
+                  value: value,
+                  child: Text(value.displayName),
+                ),
+              )
+              .toList(),
+          onChanged: isBusy
+              ? null
+              : (value) {
+                  if (value != null) {
+                    onEngineChanged(value);
+                  }
+                },
+        ),
+        const SizedBox(height: 14),
+        _LanguageDropdown(
+          label: 'Transcribe in',
+          value: sourceLanguage,
+          enabled: !isBusy,
+          items: items,
+          onChanged: onSourceChanged,
+        ),
+      ],
     );
   }
 }

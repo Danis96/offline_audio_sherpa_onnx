@@ -10,6 +10,32 @@ class AppLanguage {
   final String localeTag;
 }
 
-const supportedSourceLanguages = <AppLanguage>[
-  AppLanguage(code: 'en', label: 'English', localeTag: 'en-US'),
+const englishLanguage = AppLanguage(
+  code: 'en',
+  label: 'English',
+  localeTag: 'en-US',
+);
+
+const germanLanguage = AppLanguage(
+  code: 'de',
+  label: 'German',
+  localeTag: 'de-DE',
+);
+
+const bosnianLanguage = AppLanguage(
+  code: 'bs',
+  label: 'Bosnian',
+  localeTag: 'bs-BA',
+);
+
+const zipformerSourceLanguages = <AppLanguage>[englishLanguage];
+
+const senseFlowSourceLanguages = <AppLanguage>[englishLanguage, germanLanguage];
+
+const canarySourceLanguages = <AppLanguage>[englishLanguage, germanLanguage];
+
+const whisperSourceLanguages = <AppLanguage>[
+  englishLanguage,
+  germanLanguage,
+  bosnianLanguage,
 ];
