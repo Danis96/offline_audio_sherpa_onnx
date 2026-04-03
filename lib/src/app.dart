@@ -60,7 +60,7 @@ class _LiveTranslationScreenState extends State<LiveTranslationScreen> {
         tokens: widget.tokensPath,
         senseVoice: sherpa_onnx.OfflineSenseVoiceModelConfig(
           model: widget.modelPath,
-          language: "",
+          language: "en",
         ),
         numThreads: 1,
         debug: true,
@@ -85,7 +85,7 @@ class _LiveTranslationScreenState extends State<LiveTranslationScreen> {
         config: VadModelConfig(
           sileroVad: SileroVadModelConfig(
             model: widget.vadModelPath,
-            threshold: 0.5,
+            threshold: 0.2, // OVO SMANJI SA 0.5 NA 0.2 (veća osjetljivost)
             minSpeechDuration: 0.1,
             minSilenceDuration: 0.5,
             windowSize: 512,
@@ -138,26 +138,34 @@ class _LiveTranslationScreenState extends State<LiveTranslationScreen> {
   }
 
   String _mergeText(String existingText, String newText) {
-    if (existingText.isEmpty) return newText;
-    if (newText.isEmpty) return existingText;
+    // 1. Očistimo SenseVoice tagove (npr. <|zh|>, <|NEUTRAL|>, <|Speech|>)
+    String cleanNewText = newText.replaceAll(RegExp(r'<\|.*?\|>'), '').trim();
+
+    if (existingText.isEmpty) return cleanNewText;
+    if (cleanNewText.isEmpty) return existingText;
 
     existingText = existingText.trimRight();
-    newText = newText.trimLeft();
 
+    // 2. Sigurnije spajanje bez RangeError-a
     int maxOverlapLength = 20;
-    if (newText.length < 20) maxOverlapLength = newText.length;
-    if (existingText.length < 20) maxOverlapLength = existingText.length;
+    if (cleanNewText.length < maxOverlapLength) maxOverlapLength = cleanNewText.length;
+    if (existingText.length < maxOverlapLength) maxOverlapLength = existingText.length;
 
     for (int i = maxOverlapLength; i > 0; i--) {
-      String suffix = existingText.substring(existingText.length - i);
-      String prefix = newText.substring(0, i);
+      // Dodali smo try-catch da nikad ne pukne ako se desi neki čudan index
+      try {
+        String suffix = existingText.substring(existingText.length - i);
+        String prefix = cleanNewText.substring(0, i);
 
-      if (suffix.toLowerCase() == prefix.toLowerCase()) {
-        return existingText + " " + newText.substring(i).trimLeft();
+        if (suffix.toLowerCase() == prefix.toLowerCase()) {
+          return existingText + " " + cleanNewText.substring(i).trimLeft();
+        }
+      } catch (e) {
+        continue;
       }
     }
 
-    return existingText + " " + newText;
+    return existingText + " " + cleanNewText;
   }
 
   void _processAudioFrame(Float32List frame) {
@@ -220,11 +228,30 @@ class _LiveTranslationScreenState extends State<LiveTranslationScreen> {
   }
 
   Float32List _convertBytesToFloat32(Uint8List data) {
-    final int16List = data.buffer.asInt16List();
-    final float32List = Float32List(int16List.length);
-    for (int i = 0; i < int16List.length; i++) {
-      float32List[i] = int16List[i] / 32768.0;
+    // Koristimo ByteData za sigurnu manipulaciju bajtovima
+    final byteData = ByteData.sublistView(data);
+
+    // Svaki sample ima 2 bajta (16 bita), pa je dužina niza duplo manja
+    final float32List = Float32List(data.length ~/ 2);
+
+    double maxAmplitude = 0.0;
+
+    for (int i = 0; i < float32List.length; i++) {
+      // Eksplicitno čitamo 16-bitni integer kao Little Endian (iOS/Android standard)
+      int sample = byteData.getInt16(i * 2, Endian.little);
+
+      // Normalizacija u raspon -1.0 do 1.0
+      float32List[i] = sample / 32768.0;
+
+      if (float32List[i].abs() > maxAmplitude) {
+        maxAmplitude = float32List[i].abs();
+      }
     }
+
+    if (_frameCount % 20 == 0) {
+      print("🔊 JAČINA ZVUKA (Max Amplituda): ${maxAmplitude.toStringAsFixed(4)}");
+    }
+
     return float32List;
   }
 
