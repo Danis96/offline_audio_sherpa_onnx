@@ -173,6 +173,8 @@ class SherpaStreamingZipformerPipeline implements LiveSpeechPipeline {
   }
 }
 
+enum ParakeetLatencyPreset { realtime, vad }
+
 class SherpaSenseFlowPipeline implements LiveSpeechPipeline {
   SherpaSenseFlowPipeline({ModelAssetInstaller? assetInstaller})
     : _assetInstaller = assetInstaller ?? ModelAssetInstaller();
@@ -558,6 +560,8 @@ class SherpaWhisperPipeline implements LiveSpeechPipeline {
     : _assetInstaller = assetInstaller ?? ModelAssetInstaller();
 
   static bool _bindingsInitialized = false;
+  static const int _sampleRate = 16000;
+  static const int _forcedChunkSamples = 38400;
 
   final ModelAssetInstaller _assetInstaller;
 
@@ -566,6 +570,7 @@ class SherpaWhisperPipeline implements LiveSpeechPipeline {
   ModelAssetBundle? _installedAssets;
   String _fullTranscript = '';
   String _sourceLanguageCode = 'en';
+  int _samplesSinceLastCut = 0;
 
   @override
   bool get isReady => _recognizer != null && _vad != null;
@@ -604,18 +609,19 @@ class SherpaWhisperPipeline implements LiveSpeechPipeline {
         sileroVad: sherpa.SileroVadModelConfig(
           model: _installedAssets!.sileroVadModelPath,
           threshold: 0.35,
-          minSilenceDuration: 0.35,
-          minSpeechDuration: 0.10,
+          minSilenceDuration: 0.22,
+          minSpeechDuration: 0.08,
           windowSize: 512,
         ),
         sampleRate: 16000,
         numThreads: 1,
         debug: false,
       ),
-      bufferSizeInSeconds: 5,
+      bufferSizeInSeconds: 2,
     );
 
     _fullTranscript = '';
+    _samplesSinceLastCut = 0;
     debugPrint('[WHISPER_INIT] offline recognizer and VAD created');
   }
 
@@ -624,6 +630,7 @@ class SherpaWhisperPipeline implements LiveSpeechPipeline {
     _vad?.clear();
     _vad?.reset();
     _fullTranscript = '';
+    _samplesSinceLastCut = 0;
   }
 
   @override
@@ -633,8 +640,21 @@ class SherpaWhisperPipeline implements LiveSpeechPipeline {
     }
 
     _vad!.acceptWaveform(Float32List.fromList(samples));
+    _samplesSinceLastCut += samples.length;
+
     if (_vad!.isEmpty()) {
-      return null;
+      if (_samplesSinceLastCut < _forcedChunkSamples) {
+        return null;
+      }
+
+      debugPrint(
+        '[WHISPER_FORCE_CUT] forcing flush after ${(_samplesSinceLastCut / _sampleRate).toStringAsFixed(2)}s without a completed chunk',
+      );
+      _vad!.flush();
+      if (_vad!.isEmpty()) {
+        _samplesSinceLastCut = 0;
+        return null;
+      }
     }
 
     return _decodeQueuedSegment(isFinal: false);
@@ -647,6 +667,7 @@ class SherpaWhisperPipeline implements LiveSpeechPipeline {
     }
 
     _vad!.flush();
+    _samplesSinceLastCut = 0;
     if (_vad!.isEmpty()) {
       debugPrint(
         '[WHISPER_FINAL] transcript_length=${_fullTranscript.length} transcript="$_fullTranscript"',
@@ -672,6 +693,7 @@ class SherpaWhisperPipeline implements LiveSpeechPipeline {
     _recognizer!.decode(stream);
     final result = _recognizer!.getResult(stream);
     stream.free();
+    _samplesSinceLastCut = 0;
 
     final segmentText = result.text.trim();
     if (segmentText.isEmpty) {
@@ -718,6 +740,386 @@ class SherpaWhisperPipeline implements LiveSpeechPipeline {
     }
 
     return '$trimmedExisting $trimmedNew';
+  }
+
+  void _ensureBindings() {
+    if (_bindingsInitialized) {
+      return;
+    }
+
+    sherpa.initBindings();
+    _bindingsInitialized = true;
+  }
+
+  @override
+  void dispose() {
+    _vad?.free();
+    _vad = null;
+    _recognizer?.free();
+    _recognizer = null;
+  }
+}
+
+class SherpaOmnilingualPipeline implements LiveSpeechPipeline {
+  SherpaOmnilingualPipeline({ModelAssetInstaller? assetInstaller})
+    : _assetInstaller = assetInstaller ?? ModelAssetInstaller();
+
+  static bool _bindingsInitialized = false;
+  static const int _sampleRate = 16000;
+  static const int _forcedChunkSamples = 38400;
+
+  final ModelAssetInstaller _assetInstaller;
+
+  sherpa.OfflineRecognizer? _recognizer;
+  sherpa.VoiceActivityDetector? _vad;
+  ModelAssetBundle? _installedAssets;
+  String _fullTranscript = '';
+  int _samplesSinceLastCut = 0;
+
+  @override
+  bool get isReady => _recognizer != null && _vad != null;
+
+  @override
+  Future<void> warmUp({required AppLanguage sourceLanguage}) async {
+    _ensureBindings();
+    _installedAssets ??= await _assetInstaller.installOmnilingualAssets();
+
+    debugPrint(
+      '[OMNILINGUAL_INIT] source=${sourceLanguage.code} model=${_installedAssets!.omnilingualModelPath} tokens=${_installedAssets!.omnilingualTokensPath}',
+    );
+
+    _recognizer?.free();
+    _vad?.free();
+
+    _recognizer = sherpa.OfflineRecognizer(
+      sherpa.OfflineRecognizerConfig(
+        model: sherpa.OfflineModelConfig(
+          omnilingual: sherpa.OfflineOmnilingualAsrCtcModelConfig(
+            model: _installedAssets!.omnilingualModelPath!,
+          ),
+          tokens: _installedAssets!.omnilingualTokensPath!,
+          numThreads: 2,
+          debug: false,
+        ),
+      ),
+    );
+
+    _vad = sherpa.VoiceActivityDetector(
+      config: sherpa.VadModelConfig(
+        sileroVad: sherpa.SileroVadModelConfig(
+          model: _installedAssets!.sileroVadModelPath,
+          threshold: 0.35,
+          minSilenceDuration: 0.22,
+          minSpeechDuration: 0.08,
+          windowSize: 512,
+        ),
+        sampleRate: 16000,
+        numThreads: 1,
+        debug: false,
+      ),
+      bufferSizeInSeconds: 2,
+    );
+
+    _fullTranscript = '';
+    _samplesSinceLastCut = 0;
+    debugPrint('[OMNILINGUAL_INIT] offline recognizer and VAD created');
+  }
+
+  @override
+  void resetSession() {
+    _vad?.clear();
+    _vad?.reset();
+    _fullTranscript = '';
+    _samplesSinceLastCut = 0;
+  }
+
+  @override
+  LiveResult? ingestAudioFrame({required List<double> samples}) {
+    if (!isReady) {
+      return null;
+    }
+
+    _vad!.acceptWaveform(Float32List.fromList(samples));
+    _samplesSinceLastCut += samples.length;
+
+    if (_vad!.isEmpty()) {
+      if (_samplesSinceLastCut < _forcedChunkSamples) {
+        return null;
+      }
+
+      debugPrint(
+        '[OMNILINGUAL_FORCE_CUT] forcing flush after ${(_samplesSinceLastCut / _sampleRate).toStringAsFixed(2)}s without a completed chunk',
+      );
+      _vad!.flush();
+      if (_vad!.isEmpty()) {
+        _samplesSinceLastCut = 0;
+        return null;
+      }
+    }
+
+    return _decodeQueuedSegment(isFinal: false);
+  }
+
+  @override
+  LiveResult? finishSession() {
+    if (!isReady) {
+      return null;
+    }
+
+    _vad!.flush();
+    _samplesSinceLastCut = 0;
+    if (_vad!.isEmpty()) {
+      debugPrint(
+        '[OMNILINGUAL_FINAL] transcript_length=${_fullTranscript.length} transcript="$_fullTranscript"',
+      );
+      return _fullTranscript.isEmpty
+          ? null
+          : LiveResult(transcript: _fullTranscript);
+    }
+
+    return _decodeQueuedSegment(isFinal: true);
+  }
+
+  LiveResult? _decodeQueuedSegment({required bool isFinal}) {
+    final segment = _vad!.front();
+    _vad!.pop();
+
+    if (segment.samples.isEmpty) {
+      return null;
+    }
+
+    final stream = _recognizer!.createStream();
+    stream.acceptWaveform(sampleRate: 16000, samples: segment.samples);
+    _recognizer!.decode(stream);
+    final result = _recognizer!.getResult(stream);
+    stream.free();
+    _samplesSinceLastCut = 0;
+
+    final segmentText = result.text.trim();
+    if (segmentText.isEmpty) {
+      debugPrint('[OMNILINGUAL_${isFinal ? 'FINAL' : 'DECODE'}] empty segment');
+      return isFinal && _fullTranscript.isNotEmpty
+          ? LiveResult(transcript: _fullTranscript)
+          : null;
+    }
+
+    _fullTranscript = _fullTranscript.isEmpty
+        ? segmentText
+        : '$_fullTranscript $segmentText';
+
+    debugPrint(
+      '[OMNILINGUAL_${isFinal ? 'FINAL' : 'DECODE'}] chars=${_fullTranscript.length} segment="$segmentText"',
+    );
+    return LiveResult(transcript: _fullTranscript);
+  }
+
+  void _ensureBindings() {
+    if (_bindingsInitialized) {
+      return;
+    }
+
+    sherpa.initBindings();
+    _bindingsInitialized = true;
+  }
+
+  @override
+  void dispose() {
+    _vad?.free();
+    _vad = null;
+    _recognizer?.free();
+    _recognizer = null;
+  }
+}
+
+class SherpaParakeetPipeline implements LiveSpeechPipeline {
+  SherpaParakeetPipeline({
+    this.preset = ParakeetLatencyPreset.vad,
+    ModelAssetInstaller? assetInstaller,
+  }) : _assetInstaller = assetInstaller ?? ModelAssetInstaller();
+
+  SherpaParakeetPipeline.realtime({ModelAssetInstaller? assetInstaller})
+    : this(
+        preset: ParakeetLatencyPreset.realtime,
+        assetInstaller: assetInstaller,
+      );
+
+  SherpaParakeetPipeline.vad({ModelAssetInstaller? assetInstaller})
+    : this(preset: ParakeetLatencyPreset.vad, assetInstaller: assetInstaller);
+
+  static bool _bindingsInitialized = false;
+  static const int _sampleRate = 16000;
+  static const int _forcedChunkSamples = 38400;
+
+  final ParakeetLatencyPreset preset;
+  final ModelAssetInstaller _assetInstaller;
+
+  sherpa.OfflineRecognizer? _recognizer;
+  sherpa.VoiceActivityDetector? _vad;
+  ModelAssetBundle? _installedAssets;
+  String _fullTranscript = '';
+  int _samplesSinceLastCut = 0;
+
+  @override
+  bool get isReady => _recognizer != null && _vad != null;
+
+  @override
+  Future<void> warmUp({required AppLanguage sourceLanguage}) async {
+    _ensureBindings();
+    _installedAssets ??= await _assetInstaller.installParakeetAssets();
+    final logTag = switch (preset) {
+      ParakeetLatencyPreset.realtime => 'PARAKEET_REALTIME',
+      ParakeetLatencyPreset.vad => 'PARAKEET_VAD',
+    };
+    final minSilenceDuration = switch (preset) {
+      ParakeetLatencyPreset.realtime => 0.12,
+      ParakeetLatencyPreset.vad => 0.22,
+    };
+    final minSpeechDuration = switch (preset) {
+      ParakeetLatencyPreset.realtime => 0.05,
+      ParakeetLatencyPreset.vad => 0.08,
+    };
+    final bufferSizeInSeconds = switch (preset) {
+      ParakeetLatencyPreset.realtime => 1.0,
+      ParakeetLatencyPreset.vad => 2.0,
+    };
+
+    debugPrint(
+      '[$logTag] source=${sourceLanguage.code} encoder=${_installedAssets!.parakeetEncoderPath} decoder=${_installedAssets!.parakeetDecoderPath} joiner=${_installedAssets!.parakeetJoinerPath} tokens=${_installedAssets!.parakeetTokensPath}',
+    );
+
+    _recognizer?.free();
+    _vad?.free();
+
+    _recognizer = sherpa.OfflineRecognizer(
+      sherpa.OfflineRecognizerConfig(
+        model: sherpa.OfflineModelConfig(
+          transducer: sherpa.OfflineTransducerModelConfig(
+            encoder: _installedAssets!.parakeetEncoderPath!,
+            decoder: _installedAssets!.parakeetDecoderPath!,
+            joiner: _installedAssets!.parakeetJoinerPath!,
+          ),
+          tokens: _installedAssets!.parakeetTokensPath!,
+          modelType: 'nemo_transducer',
+          numThreads: 2,
+          debug: false,
+        ),
+      ),
+    );
+
+    _vad = sherpa.VoiceActivityDetector(
+      config: sherpa.VadModelConfig(
+        sileroVad: sherpa.SileroVadModelConfig(
+          model: _installedAssets!.sileroVadModelPath,
+          threshold: 0.35,
+          minSilenceDuration: minSilenceDuration,
+          minSpeechDuration: minSpeechDuration,
+          windowSize: 512,
+        ),
+        sampleRate: 16000,
+        numThreads: 1,
+        debug: false,
+      ),
+      bufferSizeInSeconds: bufferSizeInSeconds,
+    );
+
+    _fullTranscript = '';
+    _samplesSinceLastCut = 0;
+    debugPrint(
+      '[$logTag] offline recognizer and VAD created silence=${minSilenceDuration.toStringAsFixed(2)} speech=${minSpeechDuration.toStringAsFixed(2)} buffer=${bufferSizeInSeconds.toStringAsFixed(1)}',
+    );
+  }
+
+  @override
+  void resetSession() {
+    _vad?.clear();
+    _vad?.reset();
+    _fullTranscript = '';
+    _samplesSinceLastCut = 0;
+  }
+
+  @override
+  LiveResult? ingestAudioFrame({required List<double> samples}) {
+    if (!isReady) {
+      return null;
+    }
+
+    _vad!.acceptWaveform(Float32List.fromList(samples));
+    _samplesSinceLastCut += samples.length;
+
+    if (_vad!.isEmpty()) {
+      final forcedChunkSamples = switch (preset) {
+        ParakeetLatencyPreset.realtime => 19200,
+        ParakeetLatencyPreset.vad => _forcedChunkSamples,
+      };
+
+      if (_samplesSinceLastCut < forcedChunkSamples) {
+        return null;
+      }
+
+      debugPrint(
+        '[PARAKEET_FORCE_CUT] preset=$preset forcing flush after ${(_samplesSinceLastCut / _sampleRate).toStringAsFixed(2)}s without a completed chunk',
+      );
+      _vad!.flush();
+      if (_vad!.isEmpty()) {
+        _samplesSinceLastCut = 0;
+        return null;
+      }
+    }
+
+    return _decodeQueuedSegment(isFinal: false);
+  }
+
+  @override
+  LiveResult? finishSession() {
+    if (!isReady) {
+      return null;
+    }
+
+    _vad!.flush();
+    _samplesSinceLastCut = 0;
+    if (_vad!.isEmpty()) {
+      debugPrint(
+        '[PARAKEET_FINAL] transcript_length=${_fullTranscript.length} transcript="$_fullTranscript"',
+      );
+      return _fullTranscript.isEmpty
+          ? null
+          : LiveResult(transcript: _fullTranscript);
+    }
+
+    return _decodeQueuedSegment(isFinal: true);
+  }
+
+  LiveResult? _decodeQueuedSegment({required bool isFinal}) {
+    final segment = _vad!.front();
+    _vad!.pop();
+
+    if (segment.samples.isEmpty) {
+      return null;
+    }
+
+    final stream = _recognizer!.createStream();
+    stream.acceptWaveform(sampleRate: 16000, samples: segment.samples);
+    _recognizer!.decode(stream);
+    final result = _recognizer!.getResult(stream);
+    stream.free();
+    _samplesSinceLastCut = 0;
+
+    final segmentText = result.text.trim();
+    if (segmentText.isEmpty) {
+      debugPrint('[PARAKEET_${isFinal ? 'FINAL' : 'DECODE'}] empty segment');
+      return isFinal && _fullTranscript.isNotEmpty
+          ? LiveResult(transcript: _fullTranscript)
+          : null;
+    }
+
+    _fullTranscript = _fullTranscript.isEmpty
+        ? segmentText
+        : '$_fullTranscript $segmentText';
+
+    debugPrint(
+      '[PARAKEET_${isFinal ? 'FINAL' : 'DECODE'}] chars=${_fullTranscript.length} segment="$segmentText"',
+    );
+    return LiveResult(transcript: _fullTranscript);
   }
 
   void _ensureBindings() {

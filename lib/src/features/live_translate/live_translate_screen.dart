@@ -99,7 +99,7 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
           ? 'Ready. SenseFlow is online for ${_sourceLanguage.label} phrase transcription.'
           : _engine == _AsrEngine.canary
           ? 'Ready. Canary is online for ${_sourceLanguage.label} phrase transcription.'
-          : 'Ready. Whisper Small is online for ${_sourceLanguage.label} phrase transcription.',
+          : 'Ready. ${_engine.displayName} is online for ${_sourceLanguage.label} phrase transcription.',
       category: _LogCategory.success,
       logMessage:
           'Warmup finished. ${_engine.displayName} pipeline is online for ${_sourceLanguage.label}.',
@@ -111,6 +111,9 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
     _AsrEngine.senseFlow => senseFlowSourceLanguages,
     _AsrEngine.canary => canarySourceLanguages,
     _AsrEngine.whisperSmall => whisperSourceLanguages,
+    _AsrEngine.omnilingual => omnilingualSourceLanguages,
+    _AsrEngine.parakeetRealtime => parakeetSourceLanguages,
+    _AsrEngine.parakeetVad => parakeetSourceLanguages,
   };
 
   LiveSpeechPipeline _createPipeline(_AsrEngine engine) => switch (engine) {
@@ -118,6 +121,9 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
     _AsrEngine.senseFlow => SherpaSenseFlowPipeline(),
     _AsrEngine.canary => SherpaCanaryPipeline(),
     _AsrEngine.whisperSmall => SherpaWhisperPipeline(),
+    _AsrEngine.omnilingual => SherpaOmnilingualPipeline(),
+    _AsrEngine.parakeetRealtime => SherpaParakeetPipeline.realtime(),
+    _AsrEngine.parakeetVad => SherpaParakeetPipeline.vad(),
   };
 
   Future<void> _changeEngine(_AsrEngine engine) async {
@@ -230,7 +236,11 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
           ? 'Listening in ${_sourceLanguage.label}. SenseFlow will publish transcript chunks after short pauses.'
           : _engine == _AsrEngine.canary
           ? 'Listening in ${_sourceLanguage.label}. Canary will publish transcript chunks after short pauses.'
-          : 'Listening in ${_sourceLanguage.label}. Whisper Small will publish transcript chunks after short pauses.',
+          : _engine == _AsrEngine.parakeetRealtime
+          ? 'Listening in ${_sourceLanguage.label}. Parakeet real-time mode will publish low-latency chunks while you speak.'
+          : _engine == _AsrEngine.parakeetVad
+          ? 'Listening in ${_sourceLanguage.label}. Parakeet VAD will publish transcript chunks after short pauses.'
+          : 'Listening in ${_sourceLanguage.label}. ${_engine.displayName} will publish transcript chunks after short pauses.',
       category: _LogCategory.capture,
       logMessage:
           'Capture armed for ${_sourceLanguage.label} on ${_engine.displayName}.',
@@ -569,7 +579,15 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
   }
 }
 
-enum _AsrEngine { zipformer, senseFlow, canary, whisperSmall }
+enum _AsrEngine {
+  zipformer,
+  senseFlow,
+  canary,
+  whisperSmall,
+  omnilingual,
+  parakeetRealtime,
+  parakeetVad,
+}
 
 extension on _AsrEngine {
   String get displayName => switch (this) {
@@ -577,6 +595,9 @@ extension on _AsrEngine {
     _AsrEngine.senseFlow => 'SenseFlow',
     _AsrEngine.canary => 'Canary',
     _AsrEngine.whisperSmall => 'Whisper Small',
+    _AsrEngine.omnilingual => 'Omnilingual ASR',
+    _AsrEngine.parakeetRealtime => 'Parakeet V3 Real-Time',
+    _AsrEngine.parakeetVad => 'Parakeet V3 VAD',
   };
 }
 

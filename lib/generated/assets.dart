@@ -11,6 +11,14 @@ class Assets {
   static const String modelsSensevoiceModel = 'assets/models/sensevoice/model.int8.onnx';
   static const String modelsSensevoiceTokens = 'assets/models/sensevoice/tokens.txt';
   static const String modelsSileroVad = 'assets/models/silero_vad.onnx';
+  static const String omnilingualCtcModel = 'assets/models/omnilingual_ctc/model.int8.onnx';
+  static const String omnilingualCtcREADME = 'assets/models/omnilingual_ctc/README.md';
+  static const String omnilingualCtcTokens = 'assets/models/omnilingual_ctc/tokens.txt';
+  static const String parakeetV3Decoder = 'assets/models/parakeet_v3/decoder.int8.onnx';
+  static const String parakeetV3Encoder = 'assets/models/parakeet_v3/encoder.int8.onnx';
+  static const String parakeetV3Joiner = 'assets/models/parakeet_v3/joiner.int8.onnx';
+  static const String parakeetV3README = 'assets/models/parakeet_v3/README.md';
+  static const String parakeetV3Tokens = 'assets/models/parakeet_v3/tokens.txt';
   static const String sensevoiceModel = 'assets/models/sensevoice/model.int8.onnx';
   static const String sensevoiceTokens = 'assets/models/sensevoice/tokens.txt';
   static const String whisperSmallDecoder = 'assets/models/whisper_small/decoder.int8.onnx';

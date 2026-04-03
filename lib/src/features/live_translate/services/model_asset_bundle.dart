@@ -16,6 +16,12 @@ class ModelAssetBundle {
     this.canaryEncoderPath,
     this.canaryDecoderPath,
     this.canaryTokensPath,
+    this.omnilingualModelPath,
+    this.omnilingualTokensPath,
+    this.parakeetEncoderPath,
+    this.parakeetDecoderPath,
+    this.parakeetJoinerPath,
+    this.parakeetTokensPath,
     this.whisperEncoderPath,
     this.whisperDecoderPath,
     this.whisperTokensPath,
@@ -31,6 +37,12 @@ class ModelAssetBundle {
   final String? canaryEncoderPath;
   final String? canaryDecoderPath;
   final String? canaryTokensPath;
+  final String? omnilingualModelPath;
+  final String? omnilingualTokensPath;
+  final String? parakeetEncoderPath;
+  final String? parakeetDecoderPath;
+  final String? parakeetJoinerPath;
+  final String? parakeetTokensPath;
   final String? whisperEncoderPath;
   final String? whisperDecoderPath;
   final String? whisperTokensPath;
@@ -72,6 +84,28 @@ class ModelAssetInstaller {
   ];
   static const List<String> _canaryTokensCandidates = <String>[
     'assets/models/canary/tokens.txt',
+  ];
+  static const List<String> _omnilingualModelCandidates = <String>[
+    'assets/models/omnilingual_ctc/model.int8.onnx',
+    'assets/models/omnilingual_ctc/model.onnx',
+  ];
+  static const List<String> _omnilingualTokensCandidates = <String>[
+    'assets/models/omnilingual_ctc/tokens.txt',
+  ];
+  static const List<String> _parakeetEncoderCandidates = <String>[
+    'assets/models/parakeet_v3/encoder.int8.onnx',
+    'assets/models/parakeet_v3/encoder.onnx',
+  ];
+  static const List<String> _parakeetDecoderCandidates = <String>[
+    'assets/models/parakeet_v3/decoder.int8.onnx',
+    'assets/models/parakeet_v3/decoder.onnx',
+  ];
+  static const List<String> _parakeetJoinerCandidates = <String>[
+    'assets/models/parakeet_v3/joiner.int8.onnx',
+    'assets/models/parakeet_v3/joiner.onnx',
+  ];
+  static const List<String> _parakeetTokensCandidates = <String>[
+    'assets/models/parakeet_v3/tokens.txt',
   ];
   static const List<String> _whisperEncoderCandidates = <String>[
     'assets/models/whisper_small/encoder.int8.onnx',
@@ -211,6 +245,114 @@ class ModelAssetInstaller {
       canaryEncoderPath: encoder.path,
       canaryDecoderPath: decoder.path,
       canaryTokensPath: tokens.path,
+    );
+  }
+
+  Future<ModelAssetBundle> installOmnilingualAssets() async {
+    final supportDir = await getApplicationSupportDirectory();
+    final omnilingualDir = Directory(
+      '${supportDir.path}/models/omnilingual_ctc',
+    );
+    await omnilingualDir.create(recursive: true);
+
+    final model = await _copyFirstAvailableAsset(
+      candidates: _omnilingualModelCandidates,
+      targetName: 'model.onnx',
+      targetDir: omnilingualDir,
+    );
+    final tokens = await _copyFirstAvailableAsset(
+      candidates: _omnilingualTokensCandidates,
+      targetName: 'tokens.txt',
+      targetDir: omnilingualDir,
+    );
+    final sileroVadModel = await _copyFirstAvailableAsset(
+      candidates: _sileroVadCandidates,
+      targetName: 'silero_vad.onnx',
+      targetDir: omnilingualDir,
+    );
+
+    debugPrint(
+      '[OMNILINGUAL_ASSETS] model=${model.path} bytes=${await model.length()}',
+    );
+    debugPrint(
+      '[OMNILINGUAL_ASSETS] tokens=${tokens.path} bytes=${await tokens.length()}',
+    );
+    debugPrint(
+      '[OMNILINGUAL_ASSETS] vad=${sileroVadModel.path} bytes=${await sileroVadModel.length()}',
+    );
+
+    return ModelAssetBundle(
+      zipformerEncoderPath: '',
+      zipformerDecoderPath: '',
+      zipformerJoinerPath: '',
+      zipformerTokensPath: '',
+      senseVoiceModelPath: '',
+      senseVoiceTokensPath: '',
+      sileroVadModelPath: sileroVadModel.path,
+      omnilingualModelPath: model.path,
+      omnilingualTokensPath: tokens.path,
+    );
+  }
+
+  Future<ModelAssetBundle> installParakeetAssets() async {
+    final supportDir = await getApplicationSupportDirectory();
+    final parakeetDir = Directory('${supportDir.path}/models/parakeet_v3');
+    await parakeetDir.create(recursive: true);
+
+    final encoder = await _copyFirstAvailableAsset(
+      candidates: _parakeetEncoderCandidates,
+      targetName: 'encoder.onnx',
+      targetDir: parakeetDir,
+    );
+    final decoder = await _copyFirstAvailableAsset(
+      candidates: _parakeetDecoderCandidates,
+      targetName: 'decoder.onnx',
+      targetDir: parakeetDir,
+    );
+    final joiner = await _copyFirstAvailableAsset(
+      candidates: _parakeetJoinerCandidates,
+      targetName: 'joiner.onnx',
+      targetDir: parakeetDir,
+    );
+    final tokens = await _copyFirstAvailableAsset(
+      candidates: _parakeetTokensCandidates,
+      targetName: 'tokens.txt',
+      targetDir: parakeetDir,
+    );
+    final sileroVadModel = await _copyFirstAvailableAsset(
+      candidates: _sileroVadCandidates,
+      targetName: 'silero_vad.onnx',
+      targetDir: parakeetDir,
+    );
+
+    debugPrint(
+      '[PARAKEET_ASSETS] encoder=${encoder.path} bytes=${await encoder.length()}',
+    );
+    debugPrint(
+      '[PARAKEET_ASSETS] decoder=${decoder.path} bytes=${await decoder.length()}',
+    );
+    debugPrint(
+      '[PARAKEET_ASSETS] joiner=${joiner.path} bytes=${await joiner.length()}',
+    );
+    debugPrint(
+      '[PARAKEET_ASSETS] tokens=${tokens.path} bytes=${await tokens.length()}',
+    );
+    debugPrint(
+      '[PARAKEET_ASSETS] vad=${sileroVadModel.path} bytes=${await sileroVadModel.length()}',
+    );
+
+    return ModelAssetBundle(
+      zipformerEncoderPath: '',
+      zipformerDecoderPath: '',
+      zipformerJoinerPath: '',
+      zipformerTokensPath: '',
+      senseVoiceModelPath: '',
+      senseVoiceTokensPath: '',
+      sileroVadModelPath: sileroVadModel.path,
+      parakeetEncoderPath: encoder.path,
+      parakeetDecoderPath: decoder.path,
+      parakeetJoinerPath: joiner.path,
+      parakeetTokensPath: tokens.path,
     );
   }
 
