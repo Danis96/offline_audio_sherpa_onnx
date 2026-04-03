@@ -16,6 +16,9 @@ class ModelAssetBundle {
     this.canaryEncoderPath,
     this.canaryDecoderPath,
     this.canaryTokensPath,
+    this.whisperEncoderPath,
+    this.whisperDecoderPath,
+    this.whisperTokensPath,
   });
 
   final String zipformerEncoderPath;
@@ -28,6 +31,9 @@ class ModelAssetBundle {
   final String? canaryEncoderPath;
   final String? canaryDecoderPath;
   final String? canaryTokensPath;
+  final String? whisperEncoderPath;
+  final String? whisperDecoderPath;
+  final String? whisperTokensPath;
 }
 
 class ModelAssetInstaller {
@@ -66,6 +72,17 @@ class ModelAssetInstaller {
   ];
   static const List<String> _canaryTokensCandidates = <String>[
     'assets/models/canary/tokens.txt',
+  ];
+  static const List<String> _whisperEncoderCandidates = <String>[
+    'assets/models/whisper_small/encoder.int8.onnx',
+    'assets/models/whisper_small/encoder.onnx',
+  ];
+  static const List<String> _whisperDecoderCandidates = <String>[
+    'assets/models/whisper_small/decoder.int8.onnx',
+    'assets/models/whisper_small/decoder.onnx',
+  ];
+  static const List<String> _whisperTokensCandidates = <String>[
+    'assets/models/whisper_small/tokens.txt',
   ];
 
   Future<ModelAssetBundle> installAssets() async {
@@ -194,6 +211,59 @@ class ModelAssetInstaller {
       canaryEncoderPath: encoder.path,
       canaryDecoderPath: decoder.path,
       canaryTokensPath: tokens.path,
+    );
+  }
+
+  Future<ModelAssetBundle> installWhisperAssets() async {
+    final supportDir = await getApplicationSupportDirectory();
+    final whisperDir = Directory('${supportDir.path}/models/whisper_small');
+    await whisperDir.create(recursive: true);
+
+    final encoder = await _copyFirstAvailableAsset(
+      candidates: _whisperEncoderCandidates,
+      targetName: 'encoder.onnx',
+      targetDir: whisperDir,
+    );
+    final decoder = await _copyFirstAvailableAsset(
+      candidates: _whisperDecoderCandidates,
+      targetName: 'decoder.onnx',
+      targetDir: whisperDir,
+    );
+    final tokens = await _copyFirstAvailableAsset(
+      candidates: _whisperTokensCandidates,
+      targetName: 'tokens.txt',
+      targetDir: whisperDir,
+    );
+    final sileroVadModel = await _copyFirstAvailableAsset(
+      candidates: _sileroVadCandidates,
+      targetName: 'silero_vad.onnx',
+      targetDir: whisperDir,
+    );
+
+    debugPrint(
+      '[WHISPER_ASSETS] encoder=${encoder.path} bytes=${await encoder.length()}',
+    );
+    debugPrint(
+      '[WHISPER_ASSETS] decoder=${decoder.path} bytes=${await decoder.length()}',
+    );
+    debugPrint(
+      '[WHISPER_ASSETS] tokens=${tokens.path} bytes=${await tokens.length()}',
+    );
+    debugPrint(
+      '[WHISPER_ASSETS] vad=${sileroVadModel.path} bytes=${await sileroVadModel.length()}',
+    );
+
+    return ModelAssetBundle(
+      zipformerEncoderPath: '',
+      zipformerDecoderPath: '',
+      zipformerJoinerPath: '',
+      zipformerTokensPath: '',
+      senseVoiceModelPath: '',
+      senseVoiceTokensPath: '',
+      sileroVadModelPath: sileroVadModel.path,
+      whisperEncoderPath: encoder.path,
+      whisperDecoderPath: decoder.path,
+      whisperTokensPath: tokens.path,
     );
   }
 

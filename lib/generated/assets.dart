@@ -3,13 +3,20 @@ class Assets {
   Assets._();
 
   static const String assetsModelsSileroVad = 'assets/models/silero_vad.onnx';
+  static const String canaryDecoder = 'assets/models/canary/decoder.int8.onnx';
+  static const String canaryEncoder = 'assets/models/canary/encoder.int8.onnx';
   static const String canaryREADME = 'assets/models/canary/README.md';
+  static const String canaryTokens = 'assets/models/canary/tokens.txt';
   static const String modelsREADME = 'assets/models/README.md';
   static const String modelsSensevoiceModel = 'assets/models/sensevoice/model.int8.onnx';
   static const String modelsSensevoiceTokens = 'assets/models/sensevoice/tokens.txt';
   static const String modelsSileroVad = 'assets/models/silero_vad.onnx';
   static const String sensevoiceModel = 'assets/models/sensevoice/model.int8.onnx';
   static const String sensevoiceTokens = 'assets/models/sensevoice/tokens.txt';
+  static const String whisperSmallDecoder = 'assets/models/whisper_small/decoder.int8.onnx';
+  static const String whisperSmallEncoder = 'assets/models/whisper_small/encoder.int8.onnx';
+  static const String whisperSmallREADME = 'assets/models/whisper_small/README.md';
+  static const String whisperSmallTokens = 'assets/models/whisper_small/tokens.txt';
   static const String zipformerDecoder = 'assets/models/zipformer/decoder.onnx';
   static const String zipformerEncoder = 'assets/models/zipformer/encoder.int8.onnx';
   static const String zipformerJoiner = 'assets/models/zipformer/joiner.int8.onnx';

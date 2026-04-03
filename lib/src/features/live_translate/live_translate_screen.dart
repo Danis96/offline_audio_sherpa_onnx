@@ -95,7 +95,11 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
     _setStatus(
       _engine == _AsrEngine.zipformer
           ? 'Ready. Zipformer is online for live English transcription.'
-          : 'Ready. SenseFlow is online for ${_sourceLanguage.label} phrase transcription.',
+          : _engine == _AsrEngine.senseFlow
+          ? 'Ready. SenseFlow is online for ${_sourceLanguage.label} phrase transcription.'
+          : _engine == _AsrEngine.canary
+          ? 'Ready. Canary is online for ${_sourceLanguage.label} phrase transcription.'
+          : 'Ready. Whisper Small is online for ${_sourceLanguage.label} phrase transcription.',
       category: _LogCategory.success,
       logMessage:
           'Warmup finished. ${_engine.displayName} pipeline is online for ${_sourceLanguage.label}.',
@@ -106,12 +110,14 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
     _AsrEngine.zipformer => zipformerSourceLanguages,
     _AsrEngine.senseFlow => senseFlowSourceLanguages,
     _AsrEngine.canary => canarySourceLanguages,
+    _AsrEngine.whisperSmall => whisperSourceLanguages,
   };
 
   LiveSpeechPipeline _createPipeline(_AsrEngine engine) => switch (engine) {
     _AsrEngine.zipformer => SherpaStreamingZipformerPipeline(),
     _AsrEngine.senseFlow => SherpaSenseFlowPipeline(),
     _AsrEngine.canary => SherpaCanaryPipeline(),
+    _AsrEngine.whisperSmall => SherpaWhisperPipeline(),
   };
 
   Future<void> _changeEngine(_AsrEngine engine) async {
@@ -222,7 +228,9 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
           ? 'Listening in ${_sourceLanguage.label}. Transcript will update while you speak.'
           : _engine == _AsrEngine.senseFlow
           ? 'Listening in ${_sourceLanguage.label}. SenseFlow will publish transcript chunks after short pauses.'
-          : 'Listening in ${_sourceLanguage.label}. Canary will publish transcript chunks after short pauses.',
+          : _engine == _AsrEngine.canary
+          ? 'Listening in ${_sourceLanguage.label}. Canary will publish transcript chunks after short pauses.'
+          : 'Listening in ${_sourceLanguage.label}. Whisper Small will publish transcript chunks after short pauses.',
       category: _LogCategory.capture,
       logMessage:
           'Capture armed for ${_sourceLanguage.label} on ${_engine.displayName}.',
@@ -561,13 +569,14 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
   }
 }
 
-enum _AsrEngine { zipformer, senseFlow, canary }
+enum _AsrEngine { zipformer, senseFlow, canary, whisperSmall }
 
 extension on _AsrEngine {
   String get displayName => switch (this) {
     _AsrEngine.zipformer => 'Zipformer',
     _AsrEngine.senseFlow => 'SenseFlow',
     _AsrEngine.canary => 'Canary',
+    _AsrEngine.whisperSmall => 'Whisper Small',
   };
 }
 

@@ -22,8 +22,20 @@ const germanLanguage = AppLanguage(
   localeTag: 'de-DE',
 );
 
+const bosnianLanguage = AppLanguage(
+  code: 'bs',
+  label: 'Bosnian',
+  localeTag: 'bs-BA',
+);
+
 const zipformerSourceLanguages = <AppLanguage>[englishLanguage];
 
 const senseFlowSourceLanguages = <AppLanguage>[englishLanguage, germanLanguage];
 
 const canarySourceLanguages = <AppLanguage>[englishLanguage, germanLanguage];
+
+const whisperSourceLanguages = <AppLanguage>[
+  englishLanguage,
+  germanLanguage,
+  bosnianLanguage,
+];

@@ -66,6 +66,7 @@ flutter:
     - assets/models/silero_vad.onnx
     - assets/models/zipformer/
     - assets/models/canary/
+    - assets/models/whisper_small/
 
   # To add assets to your application, add an assets section, like this:
   # assets:
