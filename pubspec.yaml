@@ -64,7 +64,6 @@ flutter:
     - assets/models/sensevoice/model.int8.onnx
     - assets/models/sensevoice/tokens.txt
     - assets/models/silero_vad.onnx
-    - assets/models/zipformer/
 
   # To add assets to your application, add an assets section, like this:
   # assets:
