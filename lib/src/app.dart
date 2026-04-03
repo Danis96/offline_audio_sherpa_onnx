@@ -8,15 +8,17 @@ import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa_onnx;
 import 'package:sherpa_onnx/sherpa_onnx.dart';
 
 class LiveTranslationScreen extends StatefulWidget {
-  final String modelPath;
+  final String modelPath;     // Ovo je sada ENCODER
   final String tokensPath;
   final String vadModelPath;
+  final String model2Path;    // Ovo je sada DECODER
 
   const LiveTranslationScreen({
     Key? key,
     required this.modelPath,
     required this.tokensPath,
     required this.vadModelPath,
+    required this.model2Path,
   }) : super(key: key);
 
   @override
@@ -37,34 +39,39 @@ class _LiveTranslationScreenState extends State<LiveTranslationScreen> {
   final Queue<Float32List> _processingQueue = Queue<Float32List>();
   bool _isEngineBusy = false;
   bool _isSherpaInitialized = false;
-  int _frameCount = 0; // Dodano za praćenje protoka audia
+  int _frameCount = 0;
 
   @override
   void initState() {
     super.initState();
-    print("🚀 INIT: Pokrećem LiveTranslationScreen...");
+    print("🚀 INIT: Pokrećem LiveTranslationScreen (Whisper)...");
     _initSherpa();
   }
 
   Future<void> _initSherpa() async {
-    print("⚙️ SHERPA: Započinjem inicijalizaciju...");
+    print("⚙️ SHERPA: Započinjem inicijalizaciju Whispera...");
     if (!_isSherpaInitialized) {
       sherpa_onnx.initBindings();
       _isSherpaInitialized = true;
       print("⚙️ SHERPA: Native bindings inicijalizovani.");
     }
 
-    // 1. ASR Model (SenseVoice)
+    // 1. ASR Model (Whisper implementacija)
     final config = sherpa_onnx.OfflineRecognizerConfig(
       model: sherpa_onnx.OfflineModelConfig(
         tokens: widget.tokensPath,
-        senseVoice: sherpa_onnx.OfflineSenseVoiceModelConfig(
-          model: widget.modelPath,
-          language: "en",
+
+        // --- NOVA WHISPER KONFIGURACIJA ---
+        whisper: sherpa_onnx.OfflineWhisperModelConfig(
+          encoder: widget.modelPath,   // small-encoder.int8.onnx
+          decoder: widget.model2Path,  // small-decoder.int8.onnx
+          language: "en",              // Forsiramo bosanski jezik
+          task: "transcribe",          // Zadaća je prepisivanje
         ),
-        numThreads: 1,
+
+        numThreads: 3,                 // Whisper radi bolje sa 2 threada
         debug: true,
-        modelType: 'sense_voice',
+        modelType: 'whisper',          // Obavezno navesti da je Whisper!
       ),
       feat: sherpa_onnx.FeatureConfig(
         sampleRate: 16000,
@@ -74,9 +81,9 @@ class _LiveTranslationScreenState extends State<LiveTranslationScreen> {
 
     try {
       _recognizer = sherpa_onnx.OfflineRecognizer(config);
-      print("✅ SHERPA: ASR Recognizer USPJEŠNO kreiran!");
+      print("✅ SHERPA: Whisper ASR Recognizer USPJEŠNO kreiran!");
     } catch (e) {
-      print("❌ SHERPA GREŠKA: Recognizer nije kreiran. Razlog: $e");
+      print("❌ SHERPA GREŠKA: Whisper Recognizer nije kreiran. Razlog: $e");
     }
 
     // 2. VAD Model (Silero)
@@ -85,8 +92,9 @@ class _LiveTranslationScreenState extends State<LiveTranslationScreen> {
         config: VadModelConfig(
           sileroVad: SileroVadModelConfig(
             model: widget.vadModelPath,
-            threshold: 0.2, // OVO SMANJI SA 0.5 NA 0.2 (veća osjetljivost)
+            threshold: 0.2,
             minSpeechDuration: 0.1,
+            // POVEĆANO NA 1.2: Dajemo Whisperu više konteksta prije sječenja
             minSilenceDuration: 0.5,
             windowSize: 512,
           ),
@@ -94,7 +102,7 @@ class _LiveTranslationScreenState extends State<LiveTranslationScreen> {
           numThreads: 1,
           debug: false,
         ),
-        bufferSizeInSeconds: 60.0,
+        bufferSizeInSeconds: 3.0,
       );
       print("✅ SHERPA: VAD Model USPJEŠNO kreiran!");
     } catch (e) {
@@ -125,7 +133,6 @@ class _LiveTranslationScreenState extends State<LiveTranslationScreen> {
       _audioStreamSub = stream.listen((data) {
         _frameCount++;
         if (_frameCount % 20 == 0) {
-          // Printamo svake ~2 sekunde da potvrdimo da podaci zaista stižu
           print("🌊 AUDIO TOK: Primam podatke... (Frame: $_frameCount, Veličina: ${data.length} bytes)");
         }
         _processAudioFrame(_convertBytesToFloat32(data));
@@ -138,7 +145,7 @@ class _LiveTranslationScreenState extends State<LiveTranslationScreen> {
   }
 
   String _mergeText(String existingText, String newText) {
-    // 1. Očistimo SenseVoice tagove (npr. <|zh|>, <|NEUTRAL|>, <|Speech|>)
+    // Očistimo eventualne sistemske tagove (mada ih Whisper rjeđe baca od SenseVoice-a)
     String cleanNewText = newText.replaceAll(RegExp(r'<\|.*?\|>'), '').trim();
 
     if (existingText.isEmpty) return cleanNewText;
@@ -146,13 +153,11 @@ class _LiveTranslationScreenState extends State<LiveTranslationScreen> {
 
     existingText = existingText.trimRight();
 
-    // 2. Sigurnije spajanje bez RangeError-a
     int maxOverlapLength = 20;
     if (cleanNewText.length < maxOverlapLength) maxOverlapLength = cleanNewText.length;
     if (existingText.length < maxOverlapLength) maxOverlapLength = existingText.length;
 
     for (int i = maxOverlapLength; i > 0; i--) {
-      // Dodali smo try-catch da nikad ne pukne ako se desi neki čudan index
       try {
         String suffix = existingText.substring(existingText.length - i);
         String prefix = cleanNewText.substring(0, i);
@@ -197,14 +202,14 @@ class _LiveTranslationScreenState extends State<LiveTranslationScreen> {
     }
 
     _isEngineBusy = true;
-    print("⚙️ ASR ENGINE: Preuzimam segment iz reda i krećem u prepoznavanje...");
+    print("⚙️ ASR ENGINE: Preuzimam segment iz reda i krećem u prepoznavanje (Whisper)...");
     final chunk = _processingQueue.removeFirst();
 
     try {
       final offlineStream = _recognizer!.createStream();
       offlineStream.acceptWaveform(sampleRate: _sampleRate, samples: chunk);
 
-      print("🧠 ASR ENGINE: Dekodiram...");
+      print("🧠 ASR ENGINE: Whisper dekodira komad...");
       _recognizer!.decode(offlineStream);
 
       final result = _recognizer!.getResult(offlineStream);
@@ -228,19 +233,13 @@ class _LiveTranslationScreenState extends State<LiveTranslationScreen> {
   }
 
   Float32List _convertBytesToFloat32(Uint8List data) {
-    // Koristimo ByteData za sigurnu manipulaciju bajtovima
     final byteData = ByteData.sublistView(data);
-
-    // Svaki sample ima 2 bajta (16 bita), pa je dužina niza duplo manja
     final float32List = Float32List(data.length ~/ 2);
 
     double maxAmplitude = 0.0;
 
     for (int i = 0; i < float32List.length; i++) {
-      // Eksplicitno čitamo 16-bitni integer kao Little Endian (iOS/Android standard)
       int sample = byteData.getInt16(i * 2, Endian.little);
-
-      // Normalizacija u raspon -1.0 do 1.0
       float32List[i] = sample / 32768.0;
 
       if (float32List[i].abs() > maxAmplitude) {
@@ -292,7 +291,7 @@ class _LiveTranslationScreenState extends State<LiveTranslationScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text("Live ASR Engine", style: TextStyle(color: Colors.black87)),
+        title: const Text("Live ASR Engine (Whisper)", style: TextStyle(color: Colors.black87)),
         backgroundColor: Colors.white,
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.black87),

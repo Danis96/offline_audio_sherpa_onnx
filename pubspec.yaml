@@ -63,6 +63,9 @@ flutter:
   assets:
     - assets/models/sensevoice/model.int8.onnx
     - assets/models/sensevoice/tokens.txt
+    - assets/models/whisper/small-decoder.int8.onnx
+    - assets/models/whisper/small-encoder.int8.onnx
+    - assets/models/whisper/small-tokens.txt
     - assets/models/silero_vad.onnx
 
   # To add assets to your application, add an assets section, like this:

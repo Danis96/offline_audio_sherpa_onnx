@@ -51,10 +51,13 @@ class _InitialLoadingScreenState extends State<InitialLoadingScreen> {
       File vadFile = await _copyAssetToPhysicalStorage('assets/models/silero_vad.onnx');
 
       setState(() => _statusMessage = "Priprema AI rječnika...");
-      File tokensFile = await _copyAssetToPhysicalStorage('assets/models/sensevoice/tokens.txt');
+      File tokensFile = await _copyAssetToPhysicalStorage('assets/models/whisper/small-tokens.txt');
 
       setState(() => _statusMessage = "Priprema glavnog ASR modela (ovo može potrajati)...");
-      File modelFile = await _copyAssetToPhysicalStorage('assets/models/sensevoice/model.int8.onnx');
+      File modelFile = await _copyAssetToPhysicalStorage('assets/models/whisper/small-encoder.int8.onnx');
+
+      setState(() => _statusMessage = "Priprema glavnog ASR modela (ovo može potrajati)...");
+      File modelDecoderFile = await _copyAssetToPhysicalStorage('assets/models/whisper/small-decoder.int8.onnx');
 
       // Kada je sve gotovo, prebacujemo korisnika na glavni ekran
       // Koristimo pushReplacement da korisnik ne može uraditi "Back" na loading ekran
@@ -66,6 +69,7 @@ class _InitialLoadingScreenState extends State<InitialLoadingScreen> {
               modelPath: modelFile.path,      // Uzimamo .path iz File objekta
               tokensPath: tokensFile.path,
               vadModelPath: vadFile.path,
+              model2Path: modelDecoderFile.path,
             ),
           ),
         );
