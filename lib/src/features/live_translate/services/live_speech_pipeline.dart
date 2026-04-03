@@ -1,5 +1,4 @@
-import 'dart:typed_data';
-
+import 'package:flutter/foundation.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 
 import '../models/app_language.dart';
@@ -9,23 +8,13 @@ import 'model_asset_bundle.dart';
 abstract class LiveSpeechPipeline {
   bool get isReady;
 
-  Future<void> warmUp({
-    required AppLanguage sourceLanguage,
-    required AppLanguage targetLanguage,
-  });
+  Future<void> warmUp({required AppLanguage sourceLanguage});
 
   void resetSession();
 
-  LiveResult? ingestAudioFrame({
-    required List<double> samples,
-    required AppLanguage sourceLanguage,
-    required AppLanguage targetLanguage,
-  });
+  LiveResult? ingestAudioFrame({required List<double> samples});
 
-  LiveResult? finishSession({
-    required AppLanguage sourceLanguage,
-    required AppLanguage targetLanguage,
-  });
+  LiveResult? finishSession();
 
   void dispose();
 }
@@ -47,12 +36,12 @@ class SherpaStreamingZipformerPipeline implements LiveSpeechPipeline {
   bool get isReady => _recognizer != null && _stream != null;
 
   @override
-  Future<void> warmUp({
-    required AppLanguage sourceLanguage,
-    required AppLanguage targetLanguage,
-  }) async {
+  Future<void> warmUp({required AppLanguage sourceLanguage}) async {
     _ensureBindings();
     _installedAssets ??= await _assetInstaller.installZipformerAssets();
+    debugPrint(
+      '[ZIPFORMER_INIT] source=${sourceLanguage.code} encoder=${_installedAssets!.zipformerEncoderPath} decoder=${_installedAssets!.zipformerDecoderPath} joiner=${_installedAssets!.zipformerJoinerPath} tokens=${_installedAssets!.zipformerTokensPath}',
+    );
 
     _stream?.free();
     _recognizer?.free();
@@ -77,8 +66,18 @@ class SherpaStreamingZipformerPipeline implements LiveSpeechPipeline {
       ),
     );
 
+    /// decodingMethod:
+    ///  {greedy_search}
+    /// At every time step, the model produces a probability distribution over all possible tokens (characters, word-pieces, etc.).
+    /// Greedy search simply picks the single highest-probability token at each step, without looking ahead or considering alternative paths.
+    ///
+    /// {beam_search}
+    /// The other common option is beam_search, which keeps the top N candidate sequences alive at each step and picks the best complete sequence at the end.
+    /// It's more accurate but significantly more expensive computationally.
+
     _stream = _recognizer!.createStream();
     _lastTranscript = '';
+    debugPrint('[ZIPFORMER_INIT] online recognizer and stream created');
   }
 
   @override
@@ -93,11 +92,7 @@ class SherpaStreamingZipformerPipeline implements LiveSpeechPipeline {
   }
 
   @override
-  LiveResult? ingestAudioFrame({
-    required List<double> samples,
-    required AppLanguage sourceLanguage,
-    required AppLanguage targetLanguage,
-  }) {
+  LiveResult? ingestAudioFrame({required List<double> samples}) {
     if (!isReady) {
       return null;
     }
@@ -119,26 +114,19 @@ class SherpaStreamingZipformerPipeline implements LiveSpeechPipeline {
 
     final result = _recognizer!.getResult(_stream!);
     final transcript = result.text.trim();
+    debugPrint(
+      '[ZIPFORMER_DECODE] decodedAny=$decodedAny transcript_length=${transcript.length} transcript="$transcript"',
+    );
     if (transcript == _lastTranscript) {
       return null;
     }
 
     _lastTranscript = transcript;
-    return LiveResult(
-      transcript: transcript,
-      translation: _buildTranslation(
-        transcript: transcript,
-        sourceLanguage: sourceLanguage,
-        targetLanguage: targetLanguage,
-      ),
-    );
+    return LiveResult(transcript: transcript);
   }
 
   @override
-  LiveResult? finishSession({
-    required AppLanguage sourceLanguage,
-    required AppLanguage targetLanguage,
-  }) {
+  LiveResult? finishSession() {
     if (!isReady) {
       return null;
     }
@@ -150,6 +138,9 @@ class SherpaStreamingZipformerPipeline implements LiveSpeechPipeline {
 
     final result = _recognizer!.getResult(_stream!);
     final transcript = result.text.trim();
+    debugPrint(
+      '[ZIPFORMER_FINAL] transcript_length=${transcript.length} transcript="$transcript"',
+    );
     final changed = transcript != _lastTranscript;
     _lastTranscript = transcript;
 
@@ -161,26 +152,7 @@ class SherpaStreamingZipformerPipeline implements LiveSpeechPipeline {
       return null;
     }
 
-    return LiveResult(
-      transcript: transcript,
-      translation: _buildTranslation(
-        transcript: transcript,
-        sourceLanguage: sourceLanguage,
-        targetLanguage: targetLanguage,
-      ),
-    );
-  }
-
-  String _buildTranslation({
-    required String transcript,
-    required AppLanguage sourceLanguage,
-    required AppLanguage targetLanguage,
-  }) {
-    if (sourceLanguage.code == targetLanguage.code) {
-      return transcript;
-    }
-
-    return '[Offline translation model not connected yet] $transcript';
+    return LiveResult(transcript: transcript);
   }
 
   void _ensureBindings() {

@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -60,6 +61,19 @@ class ModelAssetInstaller {
       targetDir: modelsDir,
     );
 
+    debugPrint(
+      '[ZIPFORMER_ASSETS] encoder=${encoder.path} bytes=${await encoder.length()}',
+    );
+    debugPrint(
+      '[ZIPFORMER_ASSETS] decoder=${decoder.path} bytes=${await decoder.length()}',
+    );
+    debugPrint(
+      '[ZIPFORMER_ASSETS] joiner=${joiner.path} bytes=${await joiner.length()}',
+    );
+    debugPrint(
+      '[ZIPFORMER_ASSETS] tokens=${tokens.path} bytes=${await tokens.length()}',
+    );
+
     return ModelAssetBundle(
       zipformerEncoderPath: encoder.path,
       zipformerDecoderPath: decoder.path,
@@ -80,6 +94,9 @@ class ModelAssetInstaller {
         final assetData = await rootBundle.load(assetPath);
         final bytes = Uint8List.sublistView(assetData);
         await targetFile.writeAsBytes(bytes, flush: true);
+        debugPrint(
+          '[ZIPFORMER_ASSETS] copied $assetPath -> ${targetFile.path} bytes=${bytes.length}',
+        );
         return targetFile;
       } catch (_) {
         continue;
