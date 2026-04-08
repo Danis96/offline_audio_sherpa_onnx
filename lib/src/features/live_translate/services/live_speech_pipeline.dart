@@ -1,22 +1,29 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 
 import '../models/app_language.dart';
 import '../models/live_result.dart';
 import 'model_asset_bundle.dart';
+import 'soniox_socket.dart';
 
 abstract class LiveSpeechPipeline {
   bool get isReady;
 
   Future<void> warmUp({required AppLanguage sourceLanguage});
 
-  void resetSession();
+  Future<void> resetSession();
 
-  LiveResult? ingestAudioFrame({required List<double> samples});
+  Future<LiveResult?> ingestAudioFrame({
+    required Uint8List pcmBytes,
+    required List<double> samples,
+  });
 
-  LiveResult? finishSession();
+  Future<LiveResult?> finishSession();
 
-  void dispose();
+  Future<void> dispose();
 }
 
 class SherpaStreamingZipformerPipeline implements LiveSpeechPipeline {
@@ -81,7 +88,7 @@ class SherpaStreamingZipformerPipeline implements LiveSpeechPipeline {
   }
 
   @override
-  void resetSession() {
+  Future<void> resetSession() async {
     if (_recognizer == null) {
       return;
     }
@@ -92,7 +99,10 @@ class SherpaStreamingZipformerPipeline implements LiveSpeechPipeline {
   }
 
   @override
-  LiveResult? ingestAudioFrame({required List<double> samples}) {
+  Future<LiveResult?> ingestAudioFrame({
+    required Uint8List pcmBytes,
+    required List<double> samples,
+  }) async {
     if (!isReady) {
       return null;
     }
@@ -126,7 +136,7 @@ class SherpaStreamingZipformerPipeline implements LiveSpeechPipeline {
   }
 
   @override
-  LiveResult? finishSession() {
+  Future<LiveResult?> finishSession() async {
     if (!isReady) {
       return null;
     }
@@ -165,7 +175,7 @@ class SherpaStreamingZipformerPipeline implements LiveSpeechPipeline {
   }
 
   @override
-  void dispose() {
+  Future<void> dispose() async {
     _stream?.free();
     _stream = null;
     _recognizer?.free();
@@ -241,14 +251,17 @@ class SherpaSenseFlowPipeline implements LiveSpeechPipeline {
   }
 
   @override
-  void resetSession() {
+  Future<void> resetSession() async {
     _vad?.clear();
     _vad?.reset();
     _fullTranscript = '';
   }
 
   @override
-  LiveResult? ingestAudioFrame({required List<double> samples}) {
+  Future<LiveResult?> ingestAudioFrame({
+    required Uint8List pcmBytes,
+    required List<double> samples,
+  }) async {
     if (!isReady) {
       return null;
     }
@@ -262,7 +275,7 @@ class SherpaSenseFlowPipeline implements LiveSpeechPipeline {
   }
 
   @override
-  LiveResult? finishSession() {
+  Future<LiveResult?> finishSession() async {
     if (!isReady) {
       return null;
     }
@@ -361,7 +374,7 @@ class SherpaSenseFlowPipeline implements LiveSpeechPipeline {
   }
 
   @override
-  void dispose() {
+  Future<void> dispose() async {
     _vad?.free();
     _vad = null;
     _recognizer?.free();
@@ -437,14 +450,17 @@ class SherpaCanaryPipeline implements LiveSpeechPipeline {
   }
 
   @override
-  void resetSession() {
+  Future<void> resetSession() async {
     _vad?.clear();
     _vad?.reset();
     _fullTranscript = '';
   }
 
   @override
-  LiveResult? ingestAudioFrame({required List<double> samples}) {
+  Future<LiveResult?> ingestAudioFrame({
+    required Uint8List pcmBytes,
+    required List<double> samples,
+  }) async {
     if (!isReady) {
       return null;
     }
@@ -458,7 +474,7 @@ class SherpaCanaryPipeline implements LiveSpeechPipeline {
   }
 
   @override
-  LiveResult? finishSession() {
+  Future<LiveResult?> finishSession() async {
     if (!isReady) {
       return null;
     }
@@ -547,7 +563,7 @@ class SherpaCanaryPipeline implements LiveSpeechPipeline {
   }
 
   @override
-  void dispose() {
+  Future<void> dispose() async {
     _vad?.free();
     _vad = null;
     _recognizer?.free();
@@ -626,7 +642,7 @@ class SherpaWhisperPipeline implements LiveSpeechPipeline {
   }
 
   @override
-  void resetSession() {
+  Future<void> resetSession() async {
     _vad?.clear();
     _vad?.reset();
     _fullTranscript = '';
@@ -634,7 +650,10 @@ class SherpaWhisperPipeline implements LiveSpeechPipeline {
   }
 
   @override
-  LiveResult? ingestAudioFrame({required List<double> samples}) {
+  Future<LiveResult?> ingestAudioFrame({
+    required Uint8List pcmBytes,
+    required List<double> samples,
+  }) async {
     if (!isReady) {
       return null;
     }
@@ -661,7 +680,7 @@ class SherpaWhisperPipeline implements LiveSpeechPipeline {
   }
 
   @override
-  LiveResult? finishSession() {
+  Future<LiveResult?> finishSession() async {
     if (!isReady) {
       return null;
     }
@@ -752,7 +771,7 @@ class SherpaWhisperPipeline implements LiveSpeechPipeline {
   }
 
   @override
-  void dispose() {
+  Future<void> dispose() async {
     _vad?.free();
     _vad = null;
     _recognizer?.free();
@@ -826,7 +845,7 @@ class SherpaOmnilingualPipeline implements LiveSpeechPipeline {
   }
 
   @override
-  void resetSession() {
+  Future<void> resetSession() async {
     _vad?.clear();
     _vad?.reset();
     _fullTranscript = '';
@@ -834,7 +853,10 @@ class SherpaOmnilingualPipeline implements LiveSpeechPipeline {
   }
 
   @override
-  LiveResult? ingestAudioFrame({required List<double> samples}) {
+  Future<LiveResult?> ingestAudioFrame({
+    required Uint8List pcmBytes,
+    required List<double> samples,
+  }) async {
     if (!isReady) {
       return null;
     }
@@ -861,7 +883,7 @@ class SherpaOmnilingualPipeline implements LiveSpeechPipeline {
   }
 
   @override
-  LiveResult? finishSession() {
+  Future<LiveResult?> finishSession() async {
     if (!isReady) {
       return null;
     }
@@ -923,7 +945,7 @@ class SherpaOmnilingualPipeline implements LiveSpeechPipeline {
   }
 
   @override
-  void dispose() {
+  Future<void> dispose() async {
     _vad?.free();
     _vad = null;
     _recognizer?.free();
@@ -1030,7 +1052,7 @@ class SherpaParakeetPipeline implements LiveSpeechPipeline {
   }
 
   @override
-  void resetSession() {
+  Future<void> resetSession() async {
     _vad?.clear();
     _vad?.reset();
     _fullTranscript = '';
@@ -1038,7 +1060,10 @@ class SherpaParakeetPipeline implements LiveSpeechPipeline {
   }
 
   @override
-  LiveResult? ingestAudioFrame({required List<double> samples}) {
+  Future<LiveResult?> ingestAudioFrame({
+    required Uint8List pcmBytes,
+    required List<double> samples,
+  }) async {
     if (!isReady) {
       return null;
     }
@@ -1070,7 +1095,7 @@ class SherpaParakeetPipeline implements LiveSpeechPipeline {
   }
 
   @override
-  LiveResult? finishSession() {
+  Future<LiveResult?> finishSession() async {
     if (!isReady) {
       return null;
     }
@@ -1132,10 +1157,208 @@ class SherpaParakeetPipeline implements LiveSpeechPipeline {
   }
 
   @override
-  void dispose() {
+  Future<void> dispose() async {
     _vad?.free();
     _vad = null;
     _recognizer?.free();
     _recognizer = null;
+  }
+}
+
+class SonioxRealtimePipeline implements LiveSpeechPipeline {
+  SonioxRealtimePipeline({
+    required String Function() apiKeyProvider,
+    this.socketUrl = 'wss://stt-rt.soniox.com/transcribe-websocket',
+  }) : _apiKeyProvider = apiKeyProvider;
+
+  final String Function() _apiKeyProvider;
+  final String socketUrl;
+
+  SonioxSocket? _socket;
+  StreamSubscription<Object>? _messageSub;
+  Completer<void>? _sessionClosedCompleter;
+  AppLanguage _sourceLanguage = englishLanguage;
+
+  bool _isConfigured = false;
+  String _finalTranscript = '';
+  String _previewTranscript = '';
+  String _lastDeliveredTranscript = '';
+  String? _pendingError;
+
+  @override
+  bool get isReady => _isConfigured;
+
+  @override
+  Future<void> warmUp({required AppLanguage sourceLanguage}) async {
+    final apiKey = _apiKeyProvider().trim();
+    if (apiKey.isEmpty) {
+      throw StateError(
+        'Enter a Soniox API key before selecting the Soniox engine.',
+      );
+    }
+
+    _sourceLanguage = sourceLanguage;
+    _isConfigured = true;
+    _pendingError = null;
+  }
+
+  @override
+  Future<void> resetSession() async {
+    if (!_isConfigured) {
+      return;
+    }
+
+    await _closeSocket();
+    _finalTranscript = '';
+    _previewTranscript = '';
+    _lastDeliveredTranscript = '';
+    _pendingError = null;
+
+    final socket = await connectSonioxSocket(socketUrl);
+    final sessionClosedCompleter = Completer<void>();
+
+    _socket = socket;
+    _sessionClosedCompleter = sessionClosedCompleter;
+    _messageSub = socket.messages.listen(
+      _handleSocketMessage,
+      onError: (Object error, StackTrace stackTrace) {
+        _pendingError = 'Soniox connection error: $error';
+        if (!sessionClosedCompleter.isCompleted) {
+          sessionClosedCompleter.complete();
+        }
+      },
+      onDone: () {
+        if (!sessionClosedCompleter.isCompleted) {
+          sessionClosedCompleter.complete();
+        }
+      },
+    );
+
+    await socket.sendText(
+      jsonEncode(<String, Object>{
+        'api_key': _apiKeyProvider().trim(),
+        'model': 'stt-rt-v4',
+        'audio_format': 'pcm_s16le',
+        'sample_rate': 16000,
+        'num_channels': 1,
+        'language_hints': <String>[_sourceLanguage.code],
+        'enable_endpoint_detection': true,
+        'max_endpoint_delay_ms': 900,
+      }),
+    );
+  }
+
+  @override
+  Future<LiveResult?> ingestAudioFrame({
+    required Uint8List pcmBytes,
+    required List<double> samples,
+  }) async {
+    _throwIfPendingError();
+
+    final socket = _socket;
+    if (socket == null) {
+      return null;
+    }
+
+    await socket.sendBinary(pcmBytes);
+    return _drainLatestTranscript();
+  }
+
+  @override
+  Future<LiveResult?> finishSession() async {
+    _throwIfPendingError();
+
+    final socket = _socket;
+    if (socket == null) {
+      return _drainLatestTranscript();
+    }
+
+    await socket.sendBinary(Uint8List(0));
+    await _sessionClosedCompleter?.future.timeout(
+      const Duration(seconds: 4),
+      onTimeout: () {},
+    );
+    _throwIfPendingError();
+    return _drainLatestTranscript();
+  }
+
+  @override
+  Future<void> dispose() async {
+    _isConfigured = false;
+    await _closeSocket();
+  }
+
+  Future<void> _closeSocket() async {
+    await _messageSub?.cancel();
+    _messageSub = null;
+    await _socket?.close();
+    _socket = null;
+    _sessionClosedCompleter = null;
+  }
+
+  void _handleSocketMessage(Object message) {
+    if (message is! String) {
+      return;
+    }
+
+    final decoded = jsonDecode(message);
+    if (decoded is! Map) {
+      return;
+    }
+    final json = Map<String, dynamic>.from(decoded);
+
+    final errorCode = json['error_code'];
+    if (errorCode != null) {
+      _pendingError = 'Soniox error $errorCode: ${json['error_message']}';
+      if (_sessionClosedCompleter?.isCompleted == false) {
+        _sessionClosedCompleter?.complete();
+      }
+      return;
+    }
+
+    final tokens = (json['tokens'] as List<dynamic>? ?? const <dynamic>[]);
+    final nonFinalBuffer = StringBuffer();
+
+    for (final tokenEntry in tokens) {
+      if (tokenEntry is! Map<String, dynamic>) {
+        continue;
+      }
+
+      final text = tokenEntry['text'];
+      if (text is! String || text.isEmpty) {
+        continue;
+      }
+
+      if (tokenEntry['is_final'] == true) {
+        _finalTranscript += text;
+      } else {
+        nonFinalBuffer.write(text);
+      }
+    }
+
+    _previewTranscript = _finalTranscript + nonFinalBuffer.toString();
+    if (json['finished'] == true) {
+      _previewTranscript = _finalTranscript;
+      if (_sessionClosedCompleter?.isCompleted == false) {
+        _sessionClosedCompleter?.complete();
+      }
+    }
+  }
+
+  LiveResult? _drainLatestTranscript() {
+    final transcript = _previewTranscript.trim();
+    if (transcript.isEmpty || transcript == _lastDeliveredTranscript) {
+      return null;
+    }
+
+    _lastDeliveredTranscript = transcript;
+    return LiveResult(transcript: transcript);
+  }
+
+  void _throwIfPendingError() {
+    final error = _pendingError;
+    if (error != null) {
+      throw StateError(error);
+    }
   }
 }

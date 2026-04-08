@@ -25,6 +25,7 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
   final AudioRecorder _audioRecorder = AudioRecorder();
   final ScrollController _resultsScrollController = ScrollController();
   final ScrollController _logScrollController = ScrollController();
+  final TextEditingController _sonioxApiKeyController = TextEditingController();
 
   StreamSubscription<Uint8List>? _audioStreamSub;
 
@@ -34,6 +35,7 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
   late LiveSpeechPipeline _pipeline;
   _AsrEngine _engine = _AsrEngine.zipformer;
   AppLanguage _sourceLanguage = zipformerSourceLanguages.first;
+  String _sonioxApiKey = '';
 
   String _transcript = '';
   String? _statusMessage =
@@ -52,6 +54,9 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
       category: _LogCategory.system,
       message: 'Boot sequence started. Validating bundled speech models.',
     );
+    _sonioxApiKeyController.addListener(() {
+      _sonioxApiKey = _sonioxApiKeyController.text;
+    });
     unawaited(_warmUpPipeline());
   }
 
@@ -99,6 +104,8 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
           ? 'Ready. SenseFlow is online for ${_sourceLanguage.label} phrase transcription.'
           : _engine == _AsrEngine.canary
           ? 'Ready. Canary is online for ${_sourceLanguage.label} phrase transcription.'
+          : _engine == _AsrEngine.sonioxRealtime
+          ? 'Ready. Soniox will open a real-time cloud session for ${_sourceLanguage.label} when recording starts.'
           : 'Ready. ${_engine.displayName} is online for ${_sourceLanguage.label} phrase transcription.',
       category: _LogCategory.success,
       logMessage:
@@ -114,6 +121,7 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
     _AsrEngine.omnilingual => omnilingualSourceLanguages,
     _AsrEngine.parakeetRealtime => parakeetSourceLanguages,
     _AsrEngine.parakeetVad => parakeetSourceLanguages,
+    _AsrEngine.sonioxRealtime => omnilingualSourceLanguages,
   };
 
   LiveSpeechPipeline _createPipeline(_AsrEngine engine) => switch (engine) {
@@ -124,6 +132,9 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
     _AsrEngine.omnilingual => SherpaOmnilingualPipeline(),
     _AsrEngine.parakeetRealtime => SherpaParakeetPipeline.realtime(),
     _AsrEngine.parakeetVad => SherpaParakeetPipeline.vad(),
+    _AsrEngine.sonioxRealtime => SonioxRealtimePipeline(
+      apiKeyProvider: () => _sonioxApiKey,
+    ),
   };
 
   Future<void> _changeEngine(_AsrEngine engine) async {
@@ -136,7 +147,7 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
     }
 
     final previousEngine = _engine;
-    _pipeline.dispose();
+    await _pipeline.dispose();
 
     setState(() {
       _engine = engine;
@@ -189,6 +200,18 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
   }
 
   Future<void> _startListening() async {
+    try {
+      await _pipeline.resetSession();
+    } catch (error) {
+      _setStatus(
+        'Unable to start ${_engine.displayName}: ${error.toString()}',
+        category: _LogCategory.error,
+        logMessage:
+            'Capture start blocked because pipeline session setup failed: $error',
+      );
+      return;
+    }
+
     final stream = await _audioRecorder.startStream(
       const RecordConfig(
         encoder: AudioEncoder.pcm16bits,
@@ -209,7 +232,7 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
     });
 
     _audioStreamSub = stream.listen(
-      (data) => _processAudioFrame(_convertBytesToDouble(data)),
+      (data) => unawaited(_processAudioFrame(data)),
       onError: (Object error) {
         if (!mounted) {
           return;
@@ -240,6 +263,8 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
           ? 'Listening in ${_sourceLanguage.label}. Parakeet real-time mode will publish low-latency chunks while you speak.'
           : _engine == _AsrEngine.parakeetVad
           ? 'Listening in ${_sourceLanguage.label}. Parakeet VAD will publish transcript chunks after short pauses.'
+          : _engine == _AsrEngine.sonioxRealtime
+          ? 'Listening in ${_sourceLanguage.label}. Soniox will stream provisional and final transcript tokens over the network.'
           : 'Listening in ${_sourceLanguage.label}. ${_engine.displayName} will publish transcript chunks after short pauses.',
       category: _LogCategory.capture,
       logMessage:
@@ -247,10 +272,28 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
     );
   }
 
-  void _processAudioFrame(List<double> frame) {
+  Future<void> _processAudioFrame(Uint8List pcmBytes) async {
+    final frame = _convertBytesToDouble(pcmBytes);
     _updateWaveform(frame);
     _frameCount += 1;
-    final result = _pipeline.ingestAudioFrame(samples: frame);
+    LiveResult? result;
+
+    try {
+      result = await _pipeline.ingestAudioFrame(
+        pcmBytes: pcmBytes,
+        samples: frame,
+      );
+    } catch (error) {
+      if (_isRecording) {
+        await _stopListening(flushPendingAudio: false);
+      }
+      _setStatus(
+        'Streaming failed: ${error.toString()}',
+        category: _LogCategory.error,
+        logMessage: 'Pipeline ingest failed: $error',
+      );
+      return;
+    }
 
     if (result != null) {
       _emptyDecodeWindows = 0;
@@ -286,7 +329,16 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
     );
 
     if (flushPendingAudio) {
-      final finalResult = _pipeline.finishSession();
+      LiveResult? finalResult;
+      try {
+        finalResult = await _pipeline.finishSession();
+      } catch (error) {
+        _setStatus(
+          'Finalization failed: ${error.toString()}',
+          category: _LogCategory.error,
+          logMessage: 'Pipeline finalization failed: $error',
+        );
+      }
       if (finalResult != null) {
         _applyStreamingResult(finalResult, isFinal: true);
       }
@@ -448,7 +500,8 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
     unawaited(_audioStreamSub?.cancel());
     unawaited(_audioRecorder.stop());
     _audioRecorder.dispose();
-    _pipeline.dispose();
+    _sonioxApiKeyController.dispose();
+    unawaited(_pipeline.dispose());
     _resultsScrollController.dispose();
     _logScrollController.dispose();
     super.dispose();
@@ -558,6 +611,14 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
                   await _warmUpPipeline();
                 },
               ),
+              if (_engine == _AsrEngine.sonioxRealtime) ...<Widget>[
+                const SizedBox(height: 18),
+                _ProviderConfigCard(
+                  controller: _sonioxApiKeyController,
+                  isBusy: _isRecording || _isWarmingUp,
+                  onSubmitted: (_) => unawaited(_warmUpPipeline()),
+                ),
+              ],
               const SizedBox(height: 18),
               _MonitorPanel(
                 statusMessage: _statusMessage ?? '',
@@ -587,6 +648,7 @@ enum _AsrEngine {
   omnilingual,
   parakeetRealtime,
   parakeetVad,
+  sonioxRealtime,
 }
 
 extension on _AsrEngine {
@@ -598,7 +660,64 @@ extension on _AsrEngine {
     _AsrEngine.omnilingual => 'Omnilingual ASR',
     _AsrEngine.parakeetRealtime => 'Parakeet V3 Real-Time',
     _AsrEngine.parakeetVad => 'Parakeet V3 VAD',
+    _AsrEngine.sonioxRealtime => 'Soniox Real-Time API',
   };
+}
+
+class _ProviderConfigCard extends StatelessWidget {
+  const _ProviderConfigCard({
+    required this.controller,
+    required this.isBusy,
+    required this.onSubmitted,
+  });
+
+  final TextEditingController controller;
+  final bool isBusy;
+  final ValueChanged<String> onSubmitted;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0A141D),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFF163041)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            'Soniox Session',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Paste a Soniox API key to try the hosted real-time engine. Soniox recommends temporary keys for client apps.',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: const Color(0xFF94A3B8),
+              height: 1.45,
+            ),
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: controller,
+            enabled: !isBusy,
+            obscureText: true,
+            onSubmitted: onSubmitted,
+            decoration: const InputDecoration(
+              labelText: 'Soniox API key',
+              hintText: 'soniox_...',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 enum _LogCategory { system, capture, segment, decode, success, error }

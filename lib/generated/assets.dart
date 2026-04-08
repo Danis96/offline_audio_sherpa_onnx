@@ -30,5 +30,4 @@ class Assets {
   static const String zipformerJoiner = 'assets/models/zipformer/joiner.int8.onnx';
   static const String zipformerREADME = 'assets/models/zipformer/README.md';
   static const String zipformerTokens = 'assets/models/zipformer/tokens.txt';
-
 }
