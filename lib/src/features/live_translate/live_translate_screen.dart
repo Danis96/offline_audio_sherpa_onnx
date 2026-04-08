@@ -33,13 +33,13 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
   final List<_LogEntry> _logs = <_LogEntry>[];
 
   late LiveSpeechPipeline _pipeline;
-  _AsrEngine _engine = _AsrEngine.zipformer;
-  AppLanguage _sourceLanguage = zipformerSourceLanguages.first;
+  AppLanguage _sourceLanguage = sonioxSourceLanguages.first;
   String _sonioxApiKey = '';
+  bool _sonioxSpeakerDiarizationEnabled = true;
 
   String _transcript = '';
-  String? _statusMessage =
-      'Preparing streaming Zipformer models from bundled assets...';
+  List<SpeakerTurn> _speakerTurns = const <SpeakerTurn>[];
+  String? _statusMessage = 'Preparing Soniox real-time transcription...';
   int _frameCount = 0;
   int _emptyDecodeWindows = 0;
 
@@ -49,10 +49,10 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
   @override
   void initState() {
     super.initState();
-    _pipeline = _createPipeline(_engine);
+    _pipeline = _createPipeline();
     _appendLog(
       category: _LogCategory.system,
-      message: 'Boot sequence started. Validating bundled speech models.',
+      message: 'Boot sequence started. Validating Soniox session settings.',
     );
     _sonioxApiKeyController.addListener(() {
       _sonioxApiKey = _sonioxApiKeyController.text;
@@ -62,10 +62,10 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
 
   Future<void> _warmUpPipeline() async {
     _setStatus(
-      'Preparing ${_engine.displayName} assets...',
+      'Preparing Soniox session...',
       category: _LogCategory.system,
       logMessage:
-          'Warmup requested for ${_sourceLanguage.label} on ${_engine.displayName}.',
+          'Warmup requested for ${_sourceLanguage.label} on Soniox Real-Time API.',
     );
 
     setState(() {
@@ -98,75 +98,19 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
       _isWarmingUp = false;
     });
     _setStatus(
-      _engine == _AsrEngine.zipformer
-          ? 'Ready. Zipformer is online for live English transcription.'
-          : _engine == _AsrEngine.senseFlow
-          ? 'Ready. SenseFlow is online for ${_sourceLanguage.label} phrase transcription.'
-          : _engine == _AsrEngine.canary
-          ? 'Ready. Canary is online for ${_sourceLanguage.label} phrase transcription.'
-          : _engine == _AsrEngine.sonioxRealtime
-          ? 'Ready. Soniox will open a real-time cloud session for ${_sourceLanguage.label} when recording starts.'
-          : 'Ready. ${_engine.displayName} is online for ${_sourceLanguage.label} phrase transcription.',
+      'Ready. Soniox will open a real-time cloud session for ${_sourceLanguage.label} when recording starts.',
       category: _LogCategory.success,
       logMessage:
-          'Warmup finished. ${_engine.displayName} pipeline is online for ${_sourceLanguage.label}.',
+          'Warmup finished. Soniox pipeline is online for ${_sourceLanguage.label}.',
     );
   }
 
-  List<AppLanguage> get _currentSourceLanguages => switch (_engine) {
-    _AsrEngine.zipformer => zipformerSourceLanguages,
-    _AsrEngine.senseFlow => senseFlowSourceLanguages,
-    _AsrEngine.canary => canarySourceLanguages,
-    _AsrEngine.whisperSmall => whisperSourceLanguages,
-    _AsrEngine.omnilingual => omnilingualSourceLanguages,
-    _AsrEngine.parakeetRealtime => parakeetSourceLanguages,
-    _AsrEngine.parakeetVad => parakeetSourceLanguages,
-    _AsrEngine.sonioxRealtime => omnilingualSourceLanguages,
-  };
+  List<AppLanguage> get _currentSourceLanguages => sonioxSourceLanguages;
 
-  LiveSpeechPipeline _createPipeline(_AsrEngine engine) => switch (engine) {
-    _AsrEngine.zipformer => SherpaStreamingZipformerPipeline(),
-    _AsrEngine.senseFlow => SherpaSenseFlowPipeline(),
-    _AsrEngine.canary => SherpaCanaryPipeline(),
-    _AsrEngine.whisperSmall => SherpaWhisperPipeline(),
-    _AsrEngine.omnilingual => SherpaOmnilingualPipeline(),
-    _AsrEngine.parakeetRealtime => SherpaParakeetPipeline.realtime(),
-    _AsrEngine.parakeetVad => SherpaParakeetPipeline.vad(),
-    _AsrEngine.sonioxRealtime => SonioxRealtimePipeline(
-      apiKeyProvider: () => _sonioxApiKey,
-    ),
-  };
-
-  Future<void> _changeEngine(_AsrEngine engine) async {
-    if (_engine == engine) {
-      return;
-    }
-
-    if (_isRecording) {
-      await _stopListening(flushPendingAudio: true);
-    }
-
-    final previousEngine = _engine;
-    await _pipeline.dispose();
-
-    setState(() {
-      _engine = engine;
-      _pipeline = _createPipeline(engine);
-      final supported = _currentSourceLanguages;
-      if (!supported.any((language) => language.code == _sourceLanguage.code)) {
-        _sourceLanguage = supported.first;
-      }
-      _transcript = '';
-      _waveformLevels = List<double>.filled(_waveformBars, 0.04);
-    });
-
-    _appendLog(
-      category: _LogCategory.system,
-      message:
-          'Engine changed from ${previousEngine.displayName} to ${engine.displayName}.',
-    );
-    await _warmUpPipeline();
-  }
+  LiveSpeechPipeline _createPipeline() => SonioxRealtimePipeline(
+    apiKeyProvider: () => _sonioxApiKey,
+    diarizationEnabledProvider: () => _sonioxSpeakerDiarizationEnabled,
+  );
 
   Future<void> _toggleRecording() async {
     if (_isRecording) {
@@ -204,7 +148,7 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
       await _pipeline.resetSession();
     } catch (error) {
       _setStatus(
-        'Unable to start ${_engine.displayName}: ${error.toString()}',
+        'Unable to start Soniox: ${error.toString()}',
         category: _LogCategory.error,
         logMessage:
             'Capture start blocked because pipeline session setup failed: $error',
@@ -220,7 +164,6 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
       ),
     );
 
-    _pipeline.resetSession();
     _frameCount = 0;
     _emptyDecodeWindows = 0;
     _appendLog(
@@ -229,6 +172,7 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
     );
     setState(() {
       _transcript = '';
+      _speakerTurns = const <SpeakerTurn>[];
     });
 
     _audioStreamSub = stream.listen(
@@ -253,22 +197,10 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
       _isRecording = true;
     });
     _setStatus(
-      _engine == _AsrEngine.zipformer
-          ? 'Listening in ${_sourceLanguage.label}. Transcript will update while you speak.'
-          : _engine == _AsrEngine.senseFlow
-          ? 'Listening in ${_sourceLanguage.label}. SenseFlow will publish transcript chunks after short pauses.'
-          : _engine == _AsrEngine.canary
-          ? 'Listening in ${_sourceLanguage.label}. Canary will publish transcript chunks after short pauses.'
-          : _engine == _AsrEngine.parakeetRealtime
-          ? 'Listening in ${_sourceLanguage.label}. Parakeet real-time mode will publish low-latency chunks while you speak.'
-          : _engine == _AsrEngine.parakeetVad
-          ? 'Listening in ${_sourceLanguage.label}. Parakeet VAD will publish transcript chunks after short pauses.'
-          : _engine == _AsrEngine.sonioxRealtime
-          ? 'Listening in ${_sourceLanguage.label}. Soniox will stream provisional and final transcript tokens over the network.'
-          : 'Listening in ${_sourceLanguage.label}. ${_engine.displayName} will publish transcript chunks after short pauses.',
+      'Listening in ${_sourceLanguage.label}. Soniox will stream provisional and final transcript tokens over the network.',
       category: _LogCategory.capture,
       logMessage:
-          'Capture armed for ${_sourceLanguage.label} on ${_engine.displayName}.',
+          'Capture armed for ${_sourceLanguage.label} on Soniox Real-Time API.',
     );
   }
 
@@ -305,7 +237,7 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
       _appendLog(
         category: _LogCategory.capture,
         message:
-            'Audio checkpoint. engine=${_engine.displayName}, frames=$_frameCount, rms=${_calculateRms(frame).toStringAsFixed(3)}.',
+            'Audio checkpoint. engine=Soniox Real-Time API, frames=$_frameCount, rms=${_calculateRms(frame).toStringAsFixed(3)}.',
       );
     }
 
@@ -314,7 +246,7 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
       _appendLog(
         category: _LogCategory.decode,
         message:
-            'No transcript update yet. engine=${_engine.displayName}, frames=$_frameCount, empty_windows=$_emptyDecodeWindows.',
+            'No transcript update yet. engine=Soniox Real-Time API, frames=$_frameCount, empty_windows=$_emptyDecodeWindows.',
       );
     }
   }
@@ -408,6 +340,7 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
 
     setState(() {
       _transcript = result.transcript;
+      _speakerTurns = result.speakerTurns;
     });
 
     final preview = result.transcript.isEmpty
@@ -535,11 +468,13 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
                       title: 'Transcript',
                       subtitle: _sourceLanguage.label,
                       body: _transcript,
+                      speakerTurns: _speakerTurns,
                     )
                   : _TextPanel(
                       title: 'Transcript',
                       subtitle: _sourceLanguage.label,
                       body: _transcript,
+                      speakerTurns: _speakerTurns,
                     );
 
               return SingleChildScrollView(
@@ -594,11 +529,9 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
               ),
               const SizedBox(height: 18),
               _LanguageSelectorCard(
-                engine: _engine,
                 sourceLanguage: _sourceLanguage,
                 items: _currentSourceLanguages,
                 isBusy: _isRecording || _isWarmingUp,
-                onEngineChanged: _changeEngine,
                 onSourceChanged: (language) async {
                   setState(() {
                     _sourceLanguage = language;
@@ -606,19 +539,29 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
                   _appendLog(
                     category: _LogCategory.system,
                     message:
-                        'Source language changed to ${language.label} on ${_engine.displayName}.',
+                        'Source language changed to ${language.label} on Soniox Real-Time API.',
                   );
                   await _warmUpPipeline();
                 },
               ),
-              if (_engine == _AsrEngine.sonioxRealtime) ...<Widget>[
-                const SizedBox(height: 18),
-                _ProviderConfigCard(
-                  controller: _sonioxApiKeyController,
-                  isBusy: _isRecording || _isWarmingUp,
-                  onSubmitted: (_) => unawaited(_warmUpPipeline()),
-                ),
-              ],
+              const SizedBox(height: 18),
+              _ProviderConfigCard(
+                controller: _sonioxApiKeyController,
+                isBusy: _isRecording || _isWarmingUp,
+                diarizationEnabled: _sonioxSpeakerDiarizationEnabled,
+                onDiarizationChanged: (value) async {
+                  setState(() {
+                    _sonioxSpeakerDiarizationEnabled = value;
+                  });
+                  _appendLog(
+                    category: _LogCategory.system,
+                    message:
+                        'Soniox speaker diarization ${value ? 'enabled' : 'disabled'}.',
+                  );
+                  await _warmUpPipeline();
+                },
+                onSubmitted: (_) => unawaited(_warmUpPipeline()),
+              ),
               const SizedBox(height: 18),
               _MonitorPanel(
                 statusMessage: _statusMessage ?? '',
@@ -640,39 +583,19 @@ class _LiveTranslateScreenState extends State<LiveTranslateScreen> {
   }
 }
 
-enum _AsrEngine {
-  zipformer,
-  senseFlow,
-  canary,
-  whisperSmall,
-  omnilingual,
-  parakeetRealtime,
-  parakeetVad,
-  sonioxRealtime,
-}
-
-extension on _AsrEngine {
-  String get displayName => switch (this) {
-    _AsrEngine.zipformer => 'Zipformer',
-    _AsrEngine.senseFlow => 'SenseFlow',
-    _AsrEngine.canary => 'Canary',
-    _AsrEngine.whisperSmall => 'Whisper Small',
-    _AsrEngine.omnilingual => 'Omnilingual ASR',
-    _AsrEngine.parakeetRealtime => 'Parakeet V3 Real-Time',
-    _AsrEngine.parakeetVad => 'Parakeet V3 VAD',
-    _AsrEngine.sonioxRealtime => 'Soniox Real-Time API',
-  };
-}
-
 class _ProviderConfigCard extends StatelessWidget {
   const _ProviderConfigCard({
     required this.controller,
     required this.isBusy,
+    required this.diarizationEnabled,
+    required this.onDiarizationChanged,
     required this.onSubmitted,
   });
 
   final TextEditingController controller;
   final bool isBusy;
+  final bool diarizationEnabled;
+  final ValueChanged<bool> onDiarizationChanged;
   final ValueChanged<String> onSubmitted;
 
   @override
@@ -712,6 +635,16 @@ class _ProviderConfigCard extends StatelessWidget {
             decoration: const InputDecoration(
               labelText: 'Soniox API key',
               hintText: 'soniox_...',
+            ),
+          ),
+          const SizedBox(height: 10),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            value: diarizationEnabled,
+            onChanged: isBusy ? null : onDiarizationChanged,
+            title: const Text('Enable speaker diarization'),
+            subtitle: const Text(
+              'Show speaker-labeled turns when Soniox returns diarization metadata.',
             ),
           ),
         ],
@@ -882,54 +815,25 @@ class _MonitorPanel extends StatelessWidget {
 
 class _LanguageSelectorCard extends StatelessWidget {
   const _LanguageSelectorCard({
-    required this.engine,
     required this.sourceLanguage,
     required this.items,
     required this.isBusy,
-    required this.onEngineChanged,
     required this.onSourceChanged,
   });
 
-  final _AsrEngine engine;
   final AppLanguage sourceLanguage;
   final List<AppLanguage> items;
   final bool isBusy;
-  final ValueChanged<_AsrEngine> onEngineChanged;
   final ValueChanged<AppLanguage> onSourceChanged;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: <Widget>[
-        DropdownButtonFormField<_AsrEngine>(
-          initialValue: engine,
-          dropdownColor: const Color(0xFF0F1A23),
-          decoration: const InputDecoration(labelText: 'Speech engine'),
-          items: _AsrEngine.values
-              .map(
-                (value) => DropdownMenuItem<_AsrEngine>(
-                  value: value,
-                  child: Text(value.displayName),
-                ),
-              )
-              .toList(),
-          onChanged: isBusy
-              ? null
-              : (value) {
-                  if (value != null) {
-                    onEngineChanged(value);
-                  }
-                },
-        ),
-        const SizedBox(height: 14),
-        _LanguageDropdown(
-          label: 'Transcribe in',
-          value: sourceLanguage,
-          enabled: !isBusy,
-          items: items,
-          onChanged: onSourceChanged,
-        ),
-      ],
+    return _LanguageDropdown(
+      label: 'Transcribe in',
+      value: sourceLanguage,
+      enabled: !isBusy,
+      items: items,
+      onChanged: onSourceChanged,
     );
   }
 }
@@ -1122,11 +1026,13 @@ class _TextPanel extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.body,
+    required this.speakerTurns,
   });
 
   final String title;
   final String subtitle;
   final String body;
+  final List<SpeakerTurn> speakerTurns;
 
   @override
   Widget build(BuildContext context) {
@@ -1161,16 +1067,57 @@ class _TextPanel extends StatelessWidget {
               borderRadius: BorderRadius.circular(22),
               border: Border.all(color: const Color(0xFF163041)),
             ),
-            child: Text(
-              body.isEmpty ? 'Waiting for audio...' : body,
-              style: theme.textTheme.bodyLarge?.copyWith(
-                height: 1.65,
-                color: const Color(0xFFF8FAFC),
-              ),
-            ),
+            child: speakerTurns.isNotEmpty
+                ? _SpeakerTurnList(turns: speakerTurns)
+                : Text(
+                    body.isEmpty ? 'Waiting for audio...' : body,
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      height: 1.65,
+                      color: const Color(0xFFF8FAFC),
+                    ),
+                  ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _SpeakerTurnList extends StatelessWidget {
+  const _SpeakerTurnList({required this.turns});
+
+  final List<SpeakerTurn> turns;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: turns
+          .map(
+            (turn) => Padding(
+              padding: const EdgeInsets.only(bottom: 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  _SignalPill(
+                    label: turn.speakerLabel.toUpperCase(),
+                    color: const Color(0xFFF59E0B),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    turn.text,
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      height: 1.65,
+                      color: const Color(0xFFF8FAFC),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          )
+          .toList(),
     );
   }
 }

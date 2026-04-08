@@ -35,8 +35,6 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   record: ^6.1.1
-  path_provider: ^2.1.5
-  sherpa_onnx: ^1.12.36
 
 dev_dependencies:
   flutter_test:
@@ -59,16 +57,6 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
-
-  assets:
-    - assets/models/sensevoice/model.int8.onnx
-    - assets/models/sensevoice/tokens.txt
-    - assets/models/silero_vad.onnx
-    - assets/models/zipformer/
-    - assets/models/canary/
-    - assets/models/whisper_small/
-    - assets/models/omnilingual_ctc/
-    - assets/models/parakeet_v3/
 
   # To add assets to your application, add an assets section, like this:
   # assets:
