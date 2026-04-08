@@ -70,19 +70,13 @@ const montenegrinLanguage = AppLanguage(
   localeTag: 'sr-ME',
 );
 
-const zipformerSourceLanguages = <AppLanguage>[englishLanguage];
+const pollandLanguage = AppLanguage(
+  code: 'pl',
+  label: 'Polland',
+  localeTag: 'pl-PL',
+);
 
-const senseFlowSourceLanguages = <AppLanguage>[englishLanguage, germanLanguage];
-
-const canarySourceLanguages = <AppLanguage>[englishLanguage, germanLanguage];
-
-const whisperSourceLanguages = <AppLanguage>[
-  englishLanguage,
-  germanLanguage,
-  bosnianLanguage,
-];
-
-const omnilingualSourceLanguages = <AppLanguage>[
+const sonioxSourceLanguages = <AppLanguage>[
   englishLanguage,
   germanLanguage,
   spanishLanguage,
@@ -93,12 +87,5 @@ const omnilingualSourceLanguages = <AppLanguage>[
   macedonianLanguage,
   albanianLanguage,
   montenegrinLanguage,
-];
-
-const parakeetSourceLanguages = <AppLanguage>[
-  englishLanguage,
-  germanLanguage,
-  spanishLanguage,
-  croatianLanguage,
-  slovenianLanguage,
+  pollandLanguage,
 ];

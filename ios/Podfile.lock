@@ -2,26 +2,20 @@ PODS:
   - Flutter (1.0.0)
   - record_ios (1.2.0):
     - Flutter
-  - sherpa_onnx_ios (1.12.36):
-    - Flutter
 
 DEPENDENCIES:
   - Flutter (from `Flutter`)
   - record_ios (from `.symlinks/plugins/record_ios/ios`)
-  - sherpa_onnx_ios (from `.symlinks/plugins/sherpa_onnx_ios/ios`)
 
 EXTERNAL SOURCES:
   Flutter:
     :path: Flutter
   record_ios:
     :path: ".symlinks/plugins/record_ios/ios"
-  sherpa_onnx_ios:
-    :path: ".symlinks/plugins/sherpa_onnx_ios/ios"
 
 SPEC CHECKSUMS:
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   record_ios: 412daca2350b228e698fffcd08f1f94ceb1e3844
-  sherpa_onnx_ios: e813293ef88f9a5dd1ff48b887f660ea6fc4144c
 
 PODFILE CHECKSUM: 3c63482e143d1b91d2d2560aee9fb04ecc74ac7e
 
